@@ -157,10 +157,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     // ── Search bar ───────────────────────────────────────
                     SliverToBoxAdapter(
                       child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                        child: _NeonSearchBar(
-                            tracks: state.visibleTracks),
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: _HomeStatCard(
+                                title: 'Library',
+                                value: '${state.visibleTracks.length}',
+                                icon: Icons.library_music_rounded,
+                               ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _HomeStatCard(
+                                title: 'Liked',
+                                value: '0',
+                                icon: Icons.favorite_rounded,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
+                    ),
+
+                    const SliverToBoxAdapter(
+                      child: SizedBox(height: 16),
                     ),
 
                     // ── Filter tabs ──────────────────────────────────────

@@ -7,7 +7,6 @@ import 'package:jb_music/domain/entities/voice_intent.dart';
 import 'package:jb_music/core/voice/model_unpacker.dart';
 
 // ── Intent map ────────────────────────────────────────────────────────────────
-// Each action maps to a list of trigger phrases (ordered by priority)
 const _kIntentMap = <JbVoiceAction, List<String>>{
   JbVoiceAction.play:        ['play', 'start', 'resume', 'continue'],
   JbVoiceAction.pause:       ['pause', 'stop', 'hold', 'wait'],
@@ -20,7 +19,6 @@ const _kIntentMap = <JbVoiceAction, List<String>>{
   JbVoiceAction.repeat:      ['repeat', 'loop', 'again'],
 };
 
-// ── Voice engine ──────────────────────────────────────────────────────────────
 class VoskVoiceEngine {
   final VoskFlutterPlugin _vosk = VoskFlutterPlugin.instance();
 
@@ -28,10 +26,18 @@ class VoskVoiceEngine {
   Recognizer?    _recognizer;
   SpeechService? _speechService;
 
-  final StreamController<VoiceCommandIntent> _intentController =
+  // ── Two streams:
+  //    commandIntentStream — structured VoiceCommandIntent (used by MusicBloc)
+  //    resultStream        — raw recognised text strings (used by SettingsScreen test)
+  final StreamController<VoiceCommandIntent> _intentCtrl =
       StreamController<VoiceCommandIntent>.broadcast();
+  final StreamController<String> _resultCtrl =
+      StreamController<String>.broadcast();
 
-  Stream<VoiceCommandIntent> get commandIntentStream => _intentController.stream;
+  Stream<VoiceCommandIntent> get commandIntentStream => _intentCtrl.stream;
+
+  /// Raw recognised text — use this for UI feedback (e.g. "Heard: next song")
+  Stream<String> get resultStream => _resultCtrl.stream;
 
   bool _isInitialized = false;
   bool _isListening   = false;
@@ -42,33 +48,27 @@ class VoskVoiceEngine {
   // ── Init ───────────────────────────────────────────────────────────────────
   Future<void> initializeVoicePipeline() async {
     if (_isInitialized) return;
-
     try {
       debugPrint('🎤 Initializing Vosk voice pipeline...');
-
       final modelPath = await ModelUnpacker.getExtractedModelPath();
       _acousticModel  = await _vosk.createModel(modelPath);
-
       _recognizer = await _vosk.createRecognizer(
         model: _acousticModel!,
         sampleRate: 16000,
         grammar: _buildGrammar(),
       );
-
       _speechService = await _vosk.initSpeechService(_recognizer!);
       _isInitialized = true;
-
-      await _startListening();
-
+       _attachListeners();
+      await _speechService!.start();
+      _isListening = true;
       debugPrint('✅ Voice pipeline ready');
     } catch (e, st) {
-      debugPrint('❌ Voice pipeline init failed: $e');
-      debugPrint(st.toString());
-      // Don't rethrow — voice is non-critical, app should still work
+      debugPrint('❌ Voice pipeline init failed: $e\n$st');
+      // Non-critical — app continues without voice
     }
   }
 
-  /// Builds a flat grammar list from all intent phrases
   List<String> _buildGrammar() {
     final words = <String>{};
     for (final phrases in _kIntentMap.values) {
@@ -79,25 +79,21 @@ class VoskVoiceEngine {
     return words.toList();
   }
 
-  // ── Listening control ──────────────────────────────────────────────────────
-  Future<void> _startListening() async {
-    if (_speechService == null || _isListening) return;
+  // ── Start listening (also called from MusicBloc via StartVoiceListeningEvent) ─
+  Future<void> startListening() async {
+    if (_isListening) return;
+    if (!_isInitialized) {
+      await initializeVoicePipeline();
+      return; // initializeVoicePipeline already starts listening
+    }
     try {
+       _attachListeners();
       await _speechService!.start();
       _isListening = true;
-
-      _speechService!.onPartial().listen(
-        (p) => _processUtterance(p, isPartial: true),
-        onError: (e) => debugPrint('⚠️ Voice partial stream error: $e'),
-      );
-
-      _speechService!.onResult().listen(
-        (r) => _processUtterance(r, isPartial: false),
-        onError: (e) => debugPrint('⚠️ Voice result stream error: $e'),
-      );
+      debugPrint('🎤 Voice listening started');
     } catch (e) {
-      debugPrint('❌ Failed to start speech service: $e');
-      _isListening = false;
+      debugPrint('❌ startListening error: $e');
+      rethrow;
     }
   }
 
@@ -114,31 +110,48 @@ class VoskVoiceEngine {
 
   Future<void> resumeListening() async {
     if (_isListening || !_isInitialized) return;
-    await _startListening();
-    debugPrint('🎤 Voice listening resumed');
+    await startListening();
+  }
+
+  void _attachListeners() {
+    _speechService!.onPartial().listen(
+      (p) => _processUtterance(p, isPartial: true),
+      onError: (e) => debugPrint('⚠️ Voice partial error: $e'),
+    );
+    _speechService!.onResult().listen(
+      (r) => _processUtterance(r, isPartial: false),
+      onError: (e) => debugPrint('⚠️ Voice result error: $e'),
+    );
   }
 
   // ── Intent parsing ─────────────────────────────────────────────────────────
   void _processUtterance(String jsonString, {required bool isPartial}) {
     if (jsonString.trim().isEmpty) return;
-
     try {
       final parsed = jsonDecode(jsonString) as Map<String, dynamic>;
-      final text   = ((isPartial ? parsed['partial'] : parsed['text']) as String? ?? '').trim();
+      final text = ((isPartial
+                  ? parsed['partial']
+                  : parsed['text']) as String? ??
+              '')
+          .trim()
+          .toLowerCase();
 
       if (text.isEmpty) return;
+       debugPrint('VOICE RAW: $text');
+      // Always emit raw text to resultStream (for UI feedback)
+      if (!isPartial) {
+        _resultCtrl.add(text);
+      }
 
-      final lower  = text.toLowerCase();
-      final result = _matchIntent(lower);
-
-      if (result != null) {
-        debugPrint('🎙️ Voice intent: ${result.action.name} '
-            '(confidence: ${result.confidenceScore.toStringAsFixed(2)}) '
-            '— "$lower"${isPartial ? " [partial]" : ""}');
-
-        // Only emit finals, or partials for time-sensitive actions
-        if (!isPartial || _isTimeSensitive(result.action)) {
-          _intentController.add(result);
+      // Match and emit intent
+      final intent = _matchIntent(text);
+      if (intent != null) {
+        debugPrint(
+            '🎙️ Voice intent: ${intent.action.name} '
+            '(${intent.confidenceScore.toStringAsFixed(2)}) — "$text"'
+            '${isPartial ? " [partial]" : ""}');
+        if (!isPartial || _isTimeSensitive(intent.action)) {
+          _intentCtrl.add(intent);
         }
       }
     } catch (e) {
@@ -146,7 +159,6 @@ class VoskVoiceEngine {
     }
   }
 
-  /// Matches text against intent map, returns best match with confidence
   VoiceCommandIntent? _matchIntent(String text) {
     JbVoiceAction? bestAction;
     double         bestScore = 0.0;
@@ -156,11 +168,8 @@ class VoskVoiceEngine {
       for (int i = 0; i < entry.value.length; i++) {
         final phrase = entry.value[i];
         if (text.contains(phrase)) {
-          // Score = phrase relevance × position weight (earlier = higher priority)
-          final positionWeight = 1.0 - (i * 0.05);
-          final lengthBonus    = phrase.split(' ').length > 1 ? 0.1 : 0.0;
-          final score          = positionWeight + lengthBonus;
-
+          final score =
+              (1.0 - i * 0.05) + (phrase.split(' ').length > 1 ? 0.1 : 0.0);
           if (score > bestScore) {
             bestScore     = score;
             bestAction    = entry.key;
@@ -180,7 +189,6 @@ class VoskVoiceEngine {
     );
   }
 
-  /// Time-sensitive actions should be emitted on partial results too
   bool _isTimeSensitive(JbVoiceAction action) => switch (action) {
         JbVoiceAction.pause    => true,
         JbVoiceAction.next     => true,
@@ -193,7 +201,8 @@ class VoskVoiceEngine {
     _speechService?.dispose();
     _recognizer?.dispose();
     _acousticModel?.dispose();
-    _intentController.close();
+    _intentCtrl.close();
+    _resultCtrl.close();
     _isInitialized = false;
     _isListening   = false;
     debugPrint('🧹 Voice engine disposed');

@@ -1,17 +1,23 @@
+// lib/application/bloc/music_bloc.dart
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
+import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:jb_music/core/audio/dsp_engine.dart';
 import 'package:jb_music/core/safety/ear_safety_monitor.dart';
 import 'package:jb_music/core/voice/vosk_voice_engine.dart';
 import 'package:jb_music/core/services/audio_handler.dart';
 import 'package:jb_music/domain/entities/jb_song.dart';
+import 'package:jb_music/domain/entities/voice_intent.dart';
 import 'package:jb_music/domain/repositories/vault_repository.dart';
 import 'package:jb_music/domain/repositories/playlist_repository.dart';
 import 'package:jb_music/domain/usecases/get_tracks.dart';
 
-// ── States ────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// STATES
+// ─────────────────────────────────────────────────────────────────────────────
 abstract class MusicState extends Equatable {
   const MusicState();
   @override
@@ -39,10 +45,13 @@ class MusicErrorState extends MusicState {
   List<Object> get props => [message];
 }
 
-// ── Events ────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// EVENTS
+// ─────────────────────────────────────────────────────────────────────────────
 abstract class MusicEvent {}
 
 class LoadAudioTracksEvent extends MusicEvent {}
+
 class TogglePlaybackEvent extends MusicEvent {}
 
 class PlayTrackEvent extends MusicEvent {
@@ -61,39 +70,75 @@ class SearchTracksEvent extends MusicEvent {
   SearchTracksEvent(this.query);
 }
 
-// ── BLoC ──────────────────────────────────────────────────────────────────────
-class MusicBloc extends Bloc<MusicEvent, MusicState> {
-  final MyAudioHandler audioHandler;
-  final GetTracks getTracksUseCase;
-  final JBDspEngine dspEngine;
-  final EarSafetyMonitor safetyMonitor;
-  final VoskVoiceEngine voiceEngine;
-  final VaultRepository vaultRepository;
-  final PlaylistRepository playlistRepository;
+// ── Voice events ──────────────────────────────────────────────────────────────
+class StartVoiceListeningEvent extends MusicEvent {}
 
-  late StreamSubscription<PlayerState> _playbackSubscription;
+class StopVoiceListeningEvent extends MusicEvent {}
+
+/// Fired when VoskVoiceEngine recognises a command (via commandIntentStream)
+class VoiceCommandEvent extends MusicEvent {
+  final VoiceCommandIntent intent;
+
+  VoiceCommandEvent({
+    required this.intent,
+  });
+} // <-- ADD THIS
+// ─────────────────────────────────────────────────────────────────────────────
+// BLOC
+// ─────────────────────────────────────────────────────────────────────────────
+class MusicBloc extends Bloc<MusicEvent, MusicState> {
+  final MyAudioHandler   audioHandler;
+  final GetTracks        getTracksUseCase;
+  final JBDspEngine      dspEngine;
+  final EarSafetyMonitor safetyMonitor;
+  final VoskVoiceEngine  _voiceEngine;
+  final VaultRepository      vaultRepository;
+  final PlaylistRepository   playlistRepository;
+
+  late final StreamSubscription<PlayerState>       _playbackSub;
+  late final StreamSubscription<VoiceCommandIntent> _voiceIntentSub;
+
   List<JBSong> _allTracks = [];
+
+  // Expose voiceEngine so SettingsScreen can subscribe to resultStream
+  VoskVoiceEngine get voiceEngine => _voiceEngine;
 
   MusicBloc({
     required this.audioHandler,
     required this.getTracksUseCase,
     required this.dspEngine,
     required this.safetyMonitor,
-    required this.voiceEngine,
+    required VoskVoiceEngine voiceEngine,
     required this.vaultRepository,
     required this.playlistRepository,
-  }) : super(MusicTracksLoadingState()) {
-    _playbackSubscription = audioHandler.playerStateStream.listen((state) {
-      add(PlaybackStateChangedEvent(state.playing));
-    });
+  })  : _voiceEngine = voiceEngine,
+        super(MusicTracksLoadingState()) {
 
+    // ── Playback state → bloc ────────────────────────────────────────────────
+    _playbackSub = audioHandler.playerStateStream.listen(
+      (state) => add(PlaybackStateChangedEvent(state.playing)),
+    );
+
+    // ── Voice intent → bloc ──────────────────────────────────────────────────
+    _voiceIntentSub = _voiceEngine.commandIntentStream.listen(
+      (intent) {
+        debugPrint('BLOC RECEIVED: ${intent.action}');
+        add(VoiceCommandEvent(intent: intent));
+      },
+    );
+
+    // ── Event handlers ───────────────────────────────────────────────────────
     on<LoadAudioTracksEvent>(_onLoadTracks);
     on<TogglePlaybackEvent>(_onTogglePlayback);
     on<PlayTrackEvent>(_onPlayTrack);
     on<PlaybackStateChangedEvent>(_onPlaybackStateChanged);
     on<SearchTracksEvent>(_onSearch);
+    on<StartVoiceListeningEvent>(_onStartVoice);
+    on<StopVoiceListeningEvent>(_onStopVoice);
+    on<VoiceCommandEvent>(_onVoiceCommand);
   }
 
+  // ── Track loading ──────────────────────────────────────────────────────────
   Future<void> _onLoadTracks(
       LoadAudioTracksEvent event, Emitter<MusicState> emit) async {
     emit(MusicTracksLoadingState());
@@ -106,20 +151,15 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     }
   }
 
+  // ── Playback ───────────────────────────────────────────────────────────────
   void _onTogglePlayback(
       TogglePlaybackEvent event, Emitter<MusicState> emit) {
-    if (audioHandler.playing) {
-      audioHandler.pause();
-    } else {
-      audioHandler.play();
-    }
+    audioHandler.playing ? audioHandler.pause() : audioHandler.play();
   }
 
   Future<void> _onPlayTrack(
       PlayTrackEvent event, Emitter<MusicState> emit) async {
-    final uris = event.tracks
-        .map((t) => 'file://${t.path}')
-        .toList();
+    final uris = event.tracks.map((t) => 'file://${t.path}').toList();
     await audioHandler.updatePlaylist(uris);
     await audioHandler.skipToQueueItem(event.index);
     emit(MusicTracksLoadedState(event.tracks, event.index, true));
@@ -144,12 +184,85 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     final currentIndex = state is MusicTracksLoadedState
         ? (state as MusicTracksLoadedState).currentTrackIndex
         : 0;
-    emit(MusicTracksLoadedState(filtered, currentIndex, false));
+    final isPlaying = state is MusicTracksLoadedState
+        ? (state as MusicTracksLoadedState).isPlaying
+        : false;
+    emit(MusicTracksLoadedState(filtered, currentIndex, isPlaying));
   }
 
+  // ── Voice ──────────────────────────────────────────────────────────────────
+  Future<void> _onStartVoice(
+      StartVoiceListeningEvent event, Emitter<MusicState> emit) async {
+    try {
+      await _voiceEngine.startListening();
+    } catch (e) {
+      debugPrint('❌ Voice start error: $e');
+    }
+  }
+
+  Future<void> _onStopVoice(
+      StopVoiceListeningEvent event, Emitter<MusicState> emit) async {
+    await _voiceEngine.stopListening();
+  }
+Future<void> _onVoiceCommand(
+  
+  VoiceCommandEvent event,
+  Emitter<MusicState> emit,
+) async {debugPrint('EXECUTING: ${event.intent.action}');
+  final action = event.intent.action;
+
+  switch (action) {
+    case JbVoiceAction.play:
+      await audioHandler.play();
+      break;
+
+    case JbVoiceAction.pause:
+      await audioHandler.pause();
+      break;
+
+    case JbVoiceAction.next:
+      await audioHandler.skipToNext();
+      break;
+
+    case JbVoiceAction.previous:
+      await audioHandler.skipToPrevious();
+      break;
+
+    case JbVoiceAction.shuffle:
+      await audioHandler.setShuffleMode(
+        AudioServiceShuffleMode.all,
+      );
+      break;
+
+    case JbVoiceAction.repeat:
+      await audioHandler.setRepeatMode(
+        AudioServiceRepeatMode.all,
+      );
+      break;
+
+    case JbVoiceAction.volumeUp:
+      debugPrint('Volume up');
+      break;
+
+    case JbVoiceAction.volumeDown:
+      debugPrint('Volume down');
+      break;
+
+    case JbVoiceAction.checkSafety:
+      debugPrint('Safety check');
+      break;
+
+    case JbVoiceAction.unknown:
+      debugPrint('Unknown command');
+      break;
+  }
+}
+  
+  // ── Cleanup ────────────────────────────────────────────────────────────────
   @override
   Future<void> close() {
-    _playbackSubscription.cancel();
+    _playbackSub.cancel();
+    _voiceIntentSub.cancel();
     return super.close();
   }
 }

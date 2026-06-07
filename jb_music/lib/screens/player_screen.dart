@@ -1,9 +1,8 @@
-// lib/screens/player_screen.dart
+// lib/presentation/screens/player_screen.dart
 //
-// JB Musiq — Player Screen (neon redesign)
+// JB Musiq — Player Screen
+// Theme: AMOLED black + gold (single unified theme)
 // Tabs: Art | Lyrics | Queue
-// Features: palette_generator bg, sleep timer, shuffle/repeat cycling,
-//           8D spatial toggle, animated vinyl ring, progress bar.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'dart:async';
@@ -20,8 +19,7 @@ import 'package:jb_music/application/bloc/music_bloc.dart';
 import 'package:jb_music/core/theme/rg_tokens.dart';
 import 'package:jb_music/domain/entities/jb_song.dart';
 
-// ─── Sleep-timer options ───────────────────────────────────────────────────────
-const _sleepOptions = [5, 10, 15, 30, 45, 60]; // minutes
+const _sleepOptions = [5, 10, 15, 30, 45, 60];
 
 class PlayerScreen extends StatefulWidget {
   final JBSong track;
@@ -33,24 +31,20 @@ class PlayerScreen extends StatefulWidget {
 
 class _PlayerScreenState extends State<PlayerScreen>
     with TickerProviderStateMixin {
-  // ── Controllers ────────────────────────────────────────────────────────────
   late final AnimationController _vinylCtrl;
   late final AnimationController _pulseCtrl;
   late final TabController _tabCtrl;
 
-  // ── Palette ────────────────────────────────────────────────────────────────
-  Color _bgA = const Color(0xFF080B14);
-  Color _bgB = const Color(0xFF0D1526);
+  // Palette — derived from artwork but darkened for AMOLED
+  Color _bgA = const Color(0xFF000000);
+  Color _bgB = const Color(0xFF0A0A0A);
 
-  // ── State ──────────────────────────────────────────────────────────────────
   bool _is8D = false;
   Timer? _sleepTimer;
   int? _sleepMinutes;
   DateTime? _sleepEnd;
 
-  // ── Shuffle / Repeat cycling ───────────────────────────────────────────────
-  // 0 = none, 1 = repeat-all, 2 = repeat-one
-  int _repeatMode = 0;
+  int _repeatMode = 0; // 0=none 1=all 2=one
   bool _shuffle = false;
 
   @override
@@ -82,25 +76,19 @@ class _PlayerScreenState extends State<PlayerScreen>
       );
       if (artwork == null || artwork.isEmpty) return;
 
-      final provider = MemoryImage(artwork);
       final gen = await PaletteGenerator.fromImageProvider(
-        provider,
+        MemoryImage(artwork),
         maximumColorCount: 8,
       );
 
-      final dominant =
-          gen.dominantColor?.color ?? const Color(0xFF080B14);
-      final vibrant =
-          gen.vibrantColor?.color ?? const Color(0xFF0D1526);
-
+      final dominant = gen.dominantColor?.color ?? Colors.black;
       if (!mounted) return;
       setState(() {
-        _bgA = _darken(dominant, 0.65);
-        _bgB = _darken(vibrant, 0.55);
+        // Keep very dark — AMOLED style, just a subtle tint
+        _bgA = _darken(dominant, 0.25);
+        _bgB = const Color(0xFF000000);
       });
-    } catch (_) {
-      // Palette extraction is best-effort; fall back silently.
-    }
+    } catch (_) {}
   }
 
   Color _darken(Color c, double factor) => Color.fromARGB(
@@ -125,7 +113,6 @@ class _PlayerScreenState extends State<PlayerScreen>
     return '$m:${s.toString().padLeft(2, '0')}';
   }
 
-  // ── Sleep timer ────────────────────────────────────────────────────────────
   void _showSleepTimer() {
     showModalBottomSheet(
       context: context,
@@ -148,32 +135,29 @@ class _PlayerScreenState extends State<PlayerScreen>
             _sleepEnd = end;
           });
           _sleepTimer = Timer(Duration(minutes: minutes), () {
-            final handler = context.read<MusicBloc>().audioHandler;
-            handler.pause();
-            setState(() {
-              _sleepMinutes = null;
-              _sleepEnd = null;
-            });
+            context.read<MusicBloc>().audioHandler.pause();
+            if (mounted) {
+              setState(() {
+                _sleepMinutes = null;
+                _sleepEnd = null;
+              });
+            }
           });
         },
       ),
     );
   }
 
-  // ── Repeat cycling ─────────────────────────────────────────────────────────
   void _cycleRepeat() {
     setState(() => _repeatMode = (_repeatMode + 1) % 3);
     final handler = context.read<MusicBloc>().audioHandler;
     switch (_repeatMode) {
       case 0:
         handler.setRepeatMode(AudioServiceRepeatMode.none);
-        break;
       case 1:
         handler.setRepeatMode(AudioServiceRepeatMode.all);
-        break;
       case 2:
         handler.setRepeatMode(AudioServiceRepeatMode.one);
-        break;
     }
   }
 
@@ -181,9 +165,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     setState(() => _shuffle = !_shuffle);
     final handler = context.read<MusicBloc>().audioHandler;
     handler.setShuffleMode(
-      _shuffle
-          ? AudioServiceShuffleMode.all
-          : AudioServiceShuffleMode.none,
+      _shuffle ? AudioServiceShuffleMode.all : AudioServiceShuffleMode.none,
     );
   }
 
@@ -200,10 +182,9 @@ class _PlayerScreenState extends State<PlayerScreen>
           duration: const Duration(milliseconds: 800),
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [_bgA, _bgB, const Color(0xFF080B14)],
-              stops: const [0.0, 0.45, 1.0],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [_bgA, _bgB],
             ),
           ),
           child: SafeArea(
@@ -215,13 +196,12 @@ class _PlayerScreenState extends State<PlayerScreen>
                   sleepActive: _sleepMinutes != null,
                   sleepEnd: _sleepEnd,
                 ),
-                _NeonTabBar(controller: _tabCtrl),
+                _GoldTabBar(controller: _tabCtrl),
                 Expanded(
                   child: TabBarView(
                     controller: _tabCtrl,
                     physics: const BouncingScrollPhysics(),
                     children: [
-                      // ── Tab 0: Art + Controls ────────────────────────
                       _ArtTab(
                         track: widget.track,
                         handler: handler,
@@ -238,11 +218,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                         onRepeat: _cycleRepeat,
                         fmtDuration: _fmt,
                       ),
-
-                      // ── Tab 1: Lyrics ────────────────────────────────
                       const _LyricsTab(),
-
-                      // ── Tab 2: Queue ─────────────────────────────────
                       _QueueTab(bloc: bloc, handler: handler),
                     ],
                   ),
@@ -286,10 +262,10 @@ class _TopBar extends StatelessWidget {
           const Spacer(),
           Column(
             children: [
-              const Text(
+              Text(
                 'NOW PLAYING',
                 style: TextStyle(
-                  color: Colors.white38,
+                  color: RG.textMuted,
                   fontSize: 10,
                   letterSpacing: 2.5,
                   fontWeight: FontWeight.w600,
@@ -307,14 +283,14 @@ class _TopBar extends StatelessWidget {
               decoration: sleepActive
                   ? BoxDecoration(
                       shape: BoxShape.circle,
-                      color: RG.cyan.withValues(alpha: 0.15),
+                      color: RG.goldGlow,
                       border: Border.all(
-                          color: RG.cyan.withValues(alpha: 0.5)),
+                          color: RG.gold.withValues(alpha: 0.5)),
                     )
                   : null,
               child: Icon(
                 Icons.bedtime_rounded,
-                color: sleepActive ? RG.cyan : Colors.white38,
+                color: sleepActive ? RG.gold : RG.textMuted,
                 size: 22,
               ),
             ),
@@ -326,7 +302,7 @@ class _TopBar extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SLEEP COUNTDOWN (live ticker)
+// SLEEP COUNTDOWN
 // ─────────────────────────────────────────────────────────────────────────────
 class _SleepCountdown extends StatefulWidget {
   final DateTime sleepEnd;
@@ -349,9 +325,7 @@ class _SleepCountdownState extends State<_SleepCountdown> {
 
   void _update() {
     final r = widget.sleepEnd.difference(DateTime.now());
-    if (mounted) {
-      setState(() => _remaining = r.isNegative ? Duration.zero : r);
-    }
+    if (mounted) setState(() => _remaining = r.isNegative ? Duration.zero : r);
   }
 
   @override
@@ -367,17 +341,17 @@ class _SleepCountdownState extends State<_SleepCountdown> {
     return Text(
       '${m}m ${s.toString().padLeft(2, '0')}s',
       style: const TextStyle(
-          color: RG.cyan, fontSize: 10, fontWeight: FontWeight.w700),
+          color: RG.gold, fontSize: 10, fontWeight: FontWeight.w700),
     );
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NEON TAB BAR
+// GOLD TAB BAR
 // ─────────────────────────────────────────────────────────────────────────────
-class _NeonTabBar extends StatelessWidget {
+class _GoldTabBar extends StatelessWidget {
   final TabController controller;
-  const _NeonTabBar({required this.controller});
+  const _GoldTabBar({required this.controller});
 
   @override
   Widget build(BuildContext context) {
@@ -386,28 +360,22 @@ class _NeonTabBar extends StatelessWidget {
       child: Container(
         height: 38,
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.05),
+          color: RG.surface,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-              color: Colors.white.withValues(alpha: 0.08)),
+          border: Border.all(color: RG.border),
         ),
         child: TabBar(
           controller: controller,
           indicator: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            gradient: LinearGradient(
-              colors: [
-                RG.cyan.withValues(alpha: 0.25),
-                RG.pink.withValues(alpha: 0.25),
-              ],
-            ),
+            color: RG.gold.withValues(alpha: 0.15),
             border: Border.all(
-                color: RG.cyan.withValues(alpha: 0.6), width: 0.8),
+                color: RG.gold.withValues(alpha: 0.6), width: 0.8),
           ),
           indicatorSize: TabBarIndicatorSize.tab,
           dividerColor: Colors.transparent,
-          labelColor: RG.cyan,
-          unselectedLabelColor: Colors.white38,
+          labelColor: RG.gold,
+          unselectedLabelColor: RG.textMuted,
           labelStyle: const TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w700,
@@ -481,7 +449,7 @@ class _ArtTab extends StatelessWidget {
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
-                        // Outer glow pulse ring
+                        // Pulse ring (gold, subtle)
                         AnimatedBuilder(
                           animation: pulseCtrl,
                           builder: (_, __) => Container(
@@ -490,9 +458,9 @@ class _ArtTab extends StatelessWidget {
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               border: Border.all(
-                                color: RG.cyan.withValues(
+                                color: RG.gold.withValues(
                                     alpha: playing
-                                        ? 0.15 + 0.12 * pulseCtrl.value
+                                        ? 0.10 + 0.10 * pulseCtrl.value
                                         : 0.0),
                                 width: 1.5,
                               ),
@@ -506,7 +474,7 @@ class _ArtTab extends StatelessWidget {
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: RG.pink.withValues(alpha: 0.25),
+                              color: RG.gold.withValues(alpha: 0.15),
                               width: 1,
                             ),
                           ),
@@ -521,24 +489,19 @@ class _ArtTab extends StatelessWidget {
                               height: 220,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                gradient: RadialGradient(
+                                gradient: const RadialGradient(
                                   colors: [
-                                    Colors.white.withValues(alpha: 0.05),
-                                    const Color(0xFF080B14),
-                                    Colors.white.withValues(alpha: 0.03),
-                                    const Color(0xFF0D1526),
+                                    Color(0xFF1A1A1A),
+                                    Color(0xFF000000),
+                                    Color(0xFF111111),
                                   ],
-                                  stops: const [0.0, 0.3, 0.6, 1.0],
+                                  stops: [0.0, 0.4, 1.0],
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: RG.cyan.withValues(alpha: 0.2),
+                                    color: RG.gold.withValues(alpha: 0.20),
                                     blurRadius: 30,
                                     spreadRadius: 4,
-                                  ),
-                                  BoxShadow(
-                                    color: RG.pink.withValues(alpha: 0.15),
-                                    blurRadius: 20,
                                   ),
                                 ],
                               ),
@@ -556,7 +519,7 @@ class _ArtTab extends StatelessWidget {
                                     child: Icon(
                                       Icons.music_note_rounded,
                                       size: 80,
-                                      color: RG.cyan.withValues(alpha: 0.4),
+                                      color: RG.gold.withValues(alpha: 0.35),
                                     ),
                                   ),
                                 ),
@@ -570,9 +533,8 @@ class _ArtTab extends StatelessWidget {
                           height: 24,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: const Color(0xFF080B14),
-                            border: Border.all(
-                                color: Colors.white24, width: 1),
+                            color: RG.black,
+                            border: Border.all(color: RG.border, width: 1),
                           ),
                         ),
                       ],
@@ -594,8 +556,8 @@ class _ArtTab extends StatelessWidget {
                 letterSpacing: 0.2,
                 shadows: [
                   Shadow(
-                      color: RG.cyan.withValues(alpha: 0.5),
-                      blurRadius: 12),
+                      color: RG.gold.withValues(alpha: 0.35),
+                      blurRadius: 10),
                 ],
               ),
               textAlign: TextAlign.center,
@@ -605,11 +567,7 @@ class _ArtTab extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               track.artist,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.45),
-                fontSize: 14,
-                letterSpacing: 0.3,
-              ),
+              style: TextStyle(color: RG.textSecondary, fontSize: 14),
             ),
 
             const SizedBox(height: 28),
@@ -629,29 +587,13 @@ class _ArtTab extends StatelessWidget {
 
                     return Column(
                       children: [
-                        SliderTheme(
-                          data: SliderTheme.of(context).copyWith(
-                            trackHeight: 2.5,
-                            thumbShape: const RoundSliderThumbShape(
-                                enabledThumbRadius: 5),
-                            overlayShape:
-                                const RoundSliderOverlayShape(
-                                    overlayRadius: 14),
-                            activeTrackColor: RG.cyan,
-                            inactiveTrackColor:
-                                Colors.white.withValues(alpha: 0.1),
-                            thumbColor: Colors.white,
-                            overlayColor:
-                                RG.cyan.withValues(alpha: 0.18),
-                          ),
-                          child: Slider(
-                            value: pos.inMilliseconds
-                                .toDouble()
-                                .clamp(0.0, maxMs),
-                            max: maxMs,
-                            onChanged: (v) => handler.seek(
-                                Duration(milliseconds: v.toInt())),
-                          ),
+                        Slider(
+                          value: pos.inMilliseconds
+                              .toDouble()
+                              .clamp(0.0, maxMs),
+                          max: maxMs,
+                          onChanged: (v) => handler.seek(
+                              Duration(milliseconds: v.toInt())),
                         ),
                         Padding(
                           padding:
@@ -661,13 +603,11 @@ class _ArtTab extends StatelessWidget {
                                 MainAxisAlignment.spaceBetween,
                             children: [
                               Text(fmtDuration(pos),
-                                  style: const TextStyle(
-                                      color: Colors.white38,
-                                      fontSize: 11)),
+                                  style: TextStyle(
+                                      color: RG.textMuted, fontSize: 11)),
                               Text(fmtDuration(dur),
-                                  style: const TextStyle(
-                                      color: Colors.white38,
-                                      fontSize: 11)),
+                                  style: TextStyle(
+                                      color: RG.textMuted, fontSize: 11)),
                             ],
                           ),
                         ),
@@ -692,13 +632,13 @@ class _ArtTab extends StatelessWidget {
                       icon: Icons.shuffle_rounded,
                       active: shuffle,
                       onTap: onShuffle,
-                      activeColor: RG.cyan,
                     ),
                     IconButton(
                       icon: const Icon(Icons.skip_previous_rounded,
                           color: Colors.white, size: 42),
                       onPressed: () => handler.skipToPrevious(),
                     ),
+                    // Play / pause button
                     GestureDetector(
                       onTap: () =>
                           playing ? handler.pause() : handler.play(),
@@ -707,20 +647,12 @@ class _ArtTab extends StatelessWidget {
                         height: 68,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          gradient: const LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [RG.cyan, RG.pink],
-                          ),
+                          color: RG.gold,
                           boxShadow: [
                             BoxShadow(
-                              color: RG.cyan.withValues(alpha: 0.4),
+                              color: RG.gold.withValues(alpha: 0.35),
                               blurRadius: 20,
-                              spreadRadius: 1,
-                            ),
-                            BoxShadow(
-                              color: RG.pink.withValues(alpha: 0.25),
-                              blurRadius: 30,
+                              spreadRadius: 2,
                             ),
                           ],
                         ),
@@ -728,7 +660,7 @@ class _ArtTab extends StatelessWidget {
                           playing
                               ? Icons.pause_rounded
                               : Icons.play_arrow_rounded,
-                          color: Colors.white,
+                          color: Colors.black,
                           size: 34,
                         ),
                       ),
@@ -744,7 +676,6 @@ class _ArtTab extends StatelessWidget {
                           : Icons.repeat_rounded,
                       active: repeatMode > 0,
                       onTap: onRepeat,
-                      activeColor: RG.pink,
                     ),
                   ],
                 );
@@ -759,18 +690,18 @@ class _ArtTab extends StatelessWidget {
                   horizontal: 16, vertical: 10),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(16),
-                color: Colors.white.withValues(alpha: 0.05),
+                color: RG.surface,
                 border: Border.all(
                   color: is8D
-                      ? RG.cyan.withValues(alpha: 0.5)
-                      : Colors.white.withValues(alpha: 0.08),
+                      ? RG.gold.withValues(alpha: 0.5)
+                      : RG.border,
                 ),
               ),
               child: Row(
                 children: [
                   Icon(
                     Icons.spatial_audio_rounded,
-                    color: is8D ? RG.cyan : Colors.white38,
+                    color: is8D ? RG.gold : RG.textMuted,
                     size: 20,
                   ),
                   const SizedBox(width: 12),
@@ -778,7 +709,7 @@ class _ArtTab extends StatelessWidget {
                     child: Text(
                       '8D Spatial Audio',
                       style: TextStyle(
-                        color: is8D ? Colors.white : Colors.white54,
+                        color: is8D ? Colors.white : RG.textSecondary,
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
                       ),
@@ -786,12 +717,6 @@ class _ArtTab extends StatelessWidget {
                   ),
                   Switch(
                     value: is8D,
-                    activeTrackColor:
-                        RG.cyan.withValues(alpha: 0.35),
-                    activeThumbColor: RG.cyan,
-                    inactiveThumbColor: Colors.white24,
-                    inactiveTrackColor:
-                        Colors.white.withValues(alpha: 0.08),
                     onChanged: onToggle8D,
                   ),
                 ],
@@ -818,13 +743,7 @@ class _LyricsTab extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          ShaderMask(
-            shaderCallback: (bounds) => const LinearGradient(
-              colors: [RG.cyan, RG.pink],
-            ).createShader(bounds),
-            child: const Icon(Icons.lyrics_rounded,
-                size: 48, color: Colors.white),
-          ),
+          Icon(Icons.lyrics_rounded, size: 48, color: RG.goldDim),
           const SizedBox(height: 16),
           const Text(
             'Lyrics Unavailable',
@@ -836,9 +755,7 @@ class _LyricsTab extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             'No lyrics found for this track.',
-            style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.35),
-                fontSize: 13),
+            style: TextStyle(color: RG.textSecondary, fontSize: 13),
           ),
         ],
       ),
@@ -862,25 +779,20 @@ class _QueueTab extends StatelessWidget {
         final songs = state is MusicTracksLoadedState
             ? state.visibleTracks
             : <JBSong>[];
-        final current = state is MusicTracksLoadedState
-            ? state.currentTrackIndex
-            : 0;
+        final current =
+            state is MusicTracksLoadedState ? state.currentTrackIndex : 0;
 
         if (songs.isEmpty) {
           return Center(
-            child: Text(
-              'Queue is empty.',
-              style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.35),
-                  fontSize: 13),
-            ),
+            child: Text('Queue is empty.',
+                style:
+                    TextStyle(color: RG.textSecondary, fontSize: 13)),
           );
         }
 
         return ListView.builder(
           physics: const BouncingScrollPhysics(),
-          padding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           itemCount: songs.length,
           itemBuilder: (context, i) {
             final song = songs[i];
@@ -913,19 +825,17 @@ class _QueueTile extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
+        duration: const Duration(milliseconds: 200),
         margin: const EdgeInsets.symmetric(vertical: 4),
-        padding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(14),
           color: isCurrent
-              ? RG.cyan.withValues(alpha: 0.1)
-              : Colors.white.withValues(alpha: 0.04),
+              ? RG.gold.withValues(alpha: 0.08)
+              : RG.surface,
           border: Border.all(
-            color: isCurrent
-                ? RG.cyan.withValues(alpha: 0.45)
-                : Colors.transparent,
+            color: isCurrent ? RG.gold.withValues(alpha: 0.45) : RG.border,
+            width: 0.8,
           ),
         ),
         child: Row(
@@ -935,7 +845,7 @@ class _QueueTile extends StatelessWidget {
               height: 44,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
-                color: Colors.white.withValues(alpha: 0.06),
+                color: RG.surfaceHigh,
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(10),
@@ -945,11 +855,9 @@ class _QueueTile extends StatelessWidget {
                   artworkFit: BoxFit.cover,
                   artworkWidth: 44,
                   artworkHeight: 44,
-                  nullArtworkWidget: Icon(
-                    Icons.music_note_rounded,
-                    size: 22,
-                    color: RG.cyan.withValues(alpha: 0.4),
-                  ),
+                  nullArtworkWidget: Icon(Icons.music_note_rounded,
+                      size: 22,
+                      color: RG.gold.withValues(alpha: 0.35)),
                 ),
               ),
             ),
@@ -961,7 +869,7 @@ class _QueueTile extends StatelessWidget {
                   Text(
                     song.title,
                     style: TextStyle(
-                      color: isCurrent ? RG.cyan : Colors.white,
+                      color: isCurrent ? RG.gold : Colors.white,
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
                     ),
@@ -971,10 +879,8 @@ class _QueueTile extends StatelessWidget {
                   const SizedBox(height: 3),
                   Text(
                     song.artist,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.38),
-                      fontSize: 11,
-                    ),
+                    style:
+                        TextStyle(color: RG.textSecondary, fontSize: 11),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -982,13 +888,7 @@ class _QueueTile extends StatelessWidget {
               ),
             ),
             if (isCurrent)
-              ShaderMask(
-                shaderCallback: (b) => const LinearGradient(
-                        colors: [RG.cyan, RG.pink])
-                    .createShader(b),
-                child: const Icon(Icons.equalizer_rounded,
-                    color: Colors.white, size: 20),
-              ),
+              Icon(Icons.equalizer_rounded, color: RG.gold, size: 20),
           ],
         ),
       ),
@@ -1013,19 +913,18 @@ class _SleepTimerSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
-      borderRadius:
-          const BorderRadius.vertical(top: Radius.circular(28)),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
           decoration: BoxDecoration(
-            color: const Color(0xFF0D1526).withValues(alpha: 0.92),
+            color: RG.surface.withValues(alpha: 0.95),
             borderRadius:
                 const BorderRadius.vertical(top: Radius.circular(28)),
             border: Border(
               top: BorderSide(
-                  color: RG.cyan.withValues(alpha: 0.25), width: 0.8),
+                  color: RG.gold.withValues(alpha: 0.2), width: 0.8),
             ),
           ),
           child: Column(
@@ -1035,24 +934,20 @@ class _SleepTimerSheet extends StatelessWidget {
                 width: 36,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: BorderRadius.circular(2),
-                ),
+                    color: RG.border,
+                    borderRadius: BorderRadius.circular(2)),
               ),
               const SizedBox(height: 20),
-              const Row(
+              Row(
                 children: [
-                  Icon(Icons.bedtime_rounded,
-                      color: RG.cyan, size: 20),
-                  SizedBox(width: 10),
-                  Text(
+                  Icon(Icons.bedtime_rounded, color: RG.gold, size: 20),
+                  const SizedBox(width: 10),
+                  const Text(
                     'Sleep Timer',
                     style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.2,
-                    ),
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700),
                   ),
                 ],
               ),
@@ -1069,32 +964,24 @@ class _SleepTimerSheet extends StatelessWidget {
                         Navigator.pop(context);
                       },
                       child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
+                        duration: const Duration(milliseconds: 150),
                         padding: const EdgeInsets.symmetric(
                             horizontal: 18, vertical: 10),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(14),
-                          gradient: isActive
-                              ? LinearGradient(
-                                  colors: [
-                                    RG.cyan.withValues(alpha: 0.25),
-                                    RG.pink.withValues(alpha: 0.15),
-                                  ],
-                                )
-                              : null,
                           color: isActive
-                              ? null
-                              : Colors.white.withValues(alpha: 0.07),
+                              ? RG.gold.withValues(alpha: 0.15)
+                              : RG.surfaceHigh,
                           border: Border.all(
                             color: isActive
-                                ? RG.cyan.withValues(alpha: 0.6)
-                                : Colors.white.withValues(alpha: 0.1),
+                                ? RG.gold.withValues(alpha: 0.6)
+                                : RG.border,
                           ),
                         ),
                         child: Text(
                           '$min min',
                           style: TextStyle(
-                            color: isActive ? RG.cyan : Colors.white70,
+                            color: isActive ? RG.gold : RG.textSecondary,
                             fontSize: 13,
                             fontWeight: isActive
                                 ? FontWeight.w700
@@ -1115,17 +1002,15 @@ class _SleepTimerSheet extends StatelessWidget {
                             horizontal: 18, vertical: 10),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(14),
-                          color: RG.pink.withValues(alpha: 0.12),
+                          color: RG.error.withValues(alpha: 0.10),
                           border: Border.all(
-                              color: RG.pink.withValues(alpha: 0.4)),
+                              color: RG.error.withValues(alpha: 0.4)),
                         ),
-                        child: const Text(
-                          'Cancel',
-                          style: TextStyle(
-                              color: RG.pink,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700),
-                        ),
+                        child: Text('Cancel',
+                            style: TextStyle(
+                                color: RG.error,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700)),
                       ),
                     ),
                 ],
@@ -1139,19 +1024,17 @@ class _SleepTimerSheet extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HELPER — small icon control with active neon state
+// CONTROL ICON — shuffle / repeat
 // ─────────────────────────────────────────────────────────────────────────────
 class _ControlIcon extends StatelessWidget {
   final IconData icon;
   final bool active;
   final VoidCallback onTap;
-  final Color activeColor;
 
   const _ControlIcon({
     required this.icon,
     required this.active,
     required this.onTap,
-    required this.activeColor,
   });
 
   @override
@@ -1167,24 +1050,19 @@ class _ControlIcon extends StatelessWidget {
               height: 36,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: activeColor.withValues(alpha: 0.12),
+                color: RG.goldGlow,
               ),
             ),
-          Icon(
-            icon,
-            color: active ? activeColor : Colors.white38,
-            size: 24,
-          ),
+          Icon(icon,
+              color: active ? RG.gold : RG.textMuted, size: 24),
           if (active)
             Positioned(
               bottom: 4,
               child: Container(
                 width: 4,
                 height: 4,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: activeColor,
-                ),
+                decoration: const BoxDecoration(
+                    shape: BoxShape.circle, color: RG.gold),
               ),
             ),
         ],

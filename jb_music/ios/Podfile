@@ -1,0 +1,23 @@
+# Global deployment contract target for jb_music
+platform :ios, '13.0'
+
+source 'https://github.com/CocoaPods/Specs.git'
+
+target 'Runner' do
+  use_frameworks!
+  use_modular_headers!
+
+  flutter_install_all_ios_pods File.dirname(File.expand_path(__file__))
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    flutter_additional_ios_build_settings(target)
+    
+    # FORCED HARDWARE SYNCHRONIZATION:
+    # Overrides old plugin defaults to prevent compilation mismatch warnings
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+    end
+  end
+end

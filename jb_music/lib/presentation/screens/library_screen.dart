@@ -3,6 +3,9 @@
 // ─────────────────────────────────────────────────────────────
 import 'package:flutter/material.dart';
 import 'package:jb_music/core/theme/rg_tokens.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:jb_music/application/bloc/music_bloc.dart';
+import 'package:jb_music/domain/entities/jb_song.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -15,13 +18,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   late TabController _tab;
   final List<String> _tabs = ['Liked', 'Recent', 'Albums', 'Artists'];
 
-  final List<Map<String, dynamic>> _liked = [
-    {'title': 'Dandelions', 'artist': 'Ruth B.', 'duration': '3:58', 'liked': true},
-    {'title': 'Dheema', 'artist': 'Anirudh', 'duration': '3:29', 'liked': true},
-    {'title': 'Dhandiya', 'artist': 'Unnimenon', 'duration': '5:44', 'liked': true},
-    {'title': 'Blinding Lights', 'artist': 'The Weeknd', 'duration': '3:20', 'liked': true},
-    {'title': 'As It Was', 'artist': 'Harry Styles', 'duration': '2:37', 'liked': true},
-  ];
+  
 
   final List<Map<String, String>> _recent = [
     {'title': 'Midnight Rain', 'artist': 'Taylor Swift', 'type': 'Song'},
@@ -61,57 +58,68 @@ class _LibraryScreenState extends State<LibraryScreen>
     super.dispose();
   }
 
-  void _toggleLike(int i) =>
-      setState(() => _liked[i]['liked'] = !_liked[i]['liked']);
+ @override
+Widget build(BuildContext context) {
+  final state = context.watch<MusicBloc>().state;
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: RG.black,
-      body: NestedScrollView(
-        headerSliverBuilder: (context, _) => [
-          SliverAppBar(
-            floating: true,
-            backgroundColor: RG.black,
-            title: const Text('Your Library',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 22)),
-            actions: [
-              TextButton.icon(
-                onPressed: () => _showPlaylistSheet(context),
-                icon: const Icon(Icons.add, color: RG.gold, size: 18),
-                label: const Text('Playlist',
-                    style: TextStyle(color: RG.gold, fontWeight: FontWeight.w600)),
-              ),
-            ],
-            bottom: TabBar(
-              controller: _tab,
-              isScrollable: true,
-              labelColor: RG.gold,
-              unselectedLabelColor: Colors.white54,
-              indicatorColor: RG.gold,
-              indicatorWeight: 2,
-              tabs: _tabs.map((t) => Tab(text: t)).toList(),
+  final likedTracks =
+      state is MusicTracksLoadedState ? state.likedTracks : <JBSong>[];
+
+  return Scaffold(
+    backgroundColor: RG.black,
+    body: NestedScrollView(
+      headerSliverBuilder: (context, _) => [
+        SliverAppBar(
+          floating: true,
+          backgroundColor: RG.black,
+          title: const Text(
+            'Your Library',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              fontSize: 22,
             ),
           ),
-        ],
-        body: TabBarView(
-          controller: _tab,
-          children: [
-            _buildLikedSongs(),
-            _buildRecent(),
-            _buildAlbums(),
-            _buildArtists(),
+          actions: [
+            TextButton.icon(
+              onPressed: () => _showPlaylistSheet(context),
+              icon: const Icon(Icons.add, color: RG.gold, size: 18),
+              label: const Text(
+                'Playlist',
+                style: TextStyle(
+                  color: RG.gold,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
           ],
+          bottom: TabBar(
+            controller: _tab,
+            isScrollable: true,
+            labelColor: RG.gold,
+            unselectedLabelColor: Colors.white54,
+            indicatorColor: RG.gold,
+            indicatorWeight: 2,
+            tabs: _tabs.map((t) => Tab(text: t)).toList(),
+          ),
         ),
+      ],
+      body: TabBarView(
+        controller: _tab,
+        children: [
+          _buildLikedSongs(likedTracks),
+          _buildRecent(),
+          _buildAlbums(),
+          _buildArtists(),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
+  
 
   // ── LIKED SONGS ──────────────────────────────────────────────
-  Widget _buildLikedSongs() {
+Widget _buildLikedSongs(List<JBSong> likedTracks) {
     return ListView(
       children: [
         Container(
@@ -151,7 +159,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                           fontWeight: FontWeight.w800)),
                   const SizedBox(height: 4),
                   Text(
-                      '${_liked.where((s) => s['liked'] == true).length} songs',
+                      '${likedTracks.length} songs',
                       style: const TextStyle(color: Colors.white70, fontSize: 13)),
                   const SizedBox(height: 16),
                   Row(
@@ -166,10 +174,10 @@ class _LibraryScreenState extends State<LibraryScreen>
             ],
           ),
         ),
-        ..._liked.asMap().entries.map((e) {
+        ...likedTracks.asMap().entries.map((e) {
           final i = e.key;
           final song = e.value;
-          final isLiked = song['liked'] as bool;
+          
           return ListTile(
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
@@ -178,24 +186,29 @@ class _LibraryScreenState extends State<LibraryScreen>
               child: Text('${i + 1}',
                   style: const TextStyle(color: Colors.white54, fontSize: 13)),
             ),
-            title: Text(song['title'],
+            title: Text(song.title,
                 style: const TextStyle(
                     color: Colors.white, fontWeight: FontWeight.w600)),
-            subtitle: Text(song['artist'],
+            subtitle: Text(song.artist,
                 style: const TextStyle(color: Colors.white54, fontSize: 12)),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(song['duration'],
+                Text(
+  '${song.durationMs ~/ 60000}:${((song.durationMs ~/ 1000) % 60).toString().padLeft(2, '0')}',
                     style: const TextStyle(
                         color: Colors.white38, fontSize: 12)),
                 const SizedBox(width: 8),
                 GestureDetector(
-                  onTap: () => _toggleLike(i),
-                  child: Icon(
-                    isLiked ? Icons.favorite : Icons.favorite_border,
-                    color: isLiked ? Colors.redAccent : Colors.white38,
-                    size: 20,
+                  onTap: () {
+                    context.read<MusicBloc>().add(
+                      ToggleLikeTrackEvent(song),
+                    );
+                  },
+                  child:Icon(
+                          Icons.favorite,
+                          color: Colors.redAccent,
+                          size: 20,
                   ),
                 ),
               ],

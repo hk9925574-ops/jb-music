@@ -14,7 +14,7 @@ import 'package:jb_music/domain/entities/voice_intent.dart';
 import 'package:jb_music/domain/repositories/vault_repository.dart';
 import 'package:jb_music/domain/repositories/playlist_repository.dart';
 import 'package:jb_music/domain/usecases/get_tracks.dart';
-
+import 'package:jb_music/domain/entities/playlist_model.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 // STATES
 // ─────────────────────────────────────────────────────────────────────────────
@@ -84,7 +84,37 @@ class ToggleLikeTrackEvent extends MusicEvent {
 
   ToggleLikeTrackEvent(this.song);
 }
+class CreatePlaylistEvent extends MusicEvent {
+  final String name;
 
+  CreatePlaylistEvent(this.name);
+}
+
+class DeletePlaylistEvent extends MusicEvent {
+  final String playlistId;
+
+  DeletePlaylistEvent(this.playlistId);
+}
+
+class AddSongToPlaylistEvent extends MusicEvent {
+  final String playlistId;
+  final String songId;
+
+  AddSongToPlaylistEvent({
+    required this.playlistId,
+    required this.songId,
+  });
+}
+
+class RemoveSongFromPlaylistEvent extends MusicEvent {
+  final String playlistId;
+  final String songId;
+
+  RemoveSongFromPlaylistEvent({
+    required this.playlistId,
+    required this.songId,
+  });
+}
 // ── Voice events ──────────────────────────────────────────────────────────────
 class StartVoiceListeningEvent extends MusicEvent {}
 
@@ -115,6 +145,7 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
 
   List<JBSong> _allTracks = [];
   List<JBSong> _likedTracks = [];
+  final List<PlaylistModel> _playlists = [];
 
   // Expose voiceEngine so SettingsScreen can subscribe to resultStream
   VoskVoiceEngine get voiceEngine => _voiceEngine;
@@ -153,6 +184,13 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     on<StartVoiceListeningEvent>(_onStartVoice);
     on<StopVoiceListeningEvent>(_onStopVoice);
     on<VoiceCommandEvent>(_onVoiceCommand);
+    
+    on<CreatePlaylistEvent>(_onCreatePlaylist);
+    on<DeletePlaylistEvent>(_onDeletePlaylist);
+    on<AddSongToPlaylistEvent>(_onAddSongToPlaylist);
+    on<RemoveSongFromPlaylistEvent>(_onRemoveSongFromPlaylist);
+
+   
   }
 
   // ── Track loading ──────────────────────────────────────────────────────────
@@ -332,6 +370,35 @@ Future<void> _onVoiceCommand(
     ),
   );
 }
+void _onCreatePlaylist(
+  CreatePlaylistEvent event,
+  Emitter<MusicState> emit,
+) {
+  final playlist = PlaylistModel(
+    id: DateTime.now().millisecondsSinceEpoch.toString(),
+    name: event.name,
+    songIds: [],
+  );
+
+  _playlists.add(playlist);
+}
+
+void _onDeletePlaylist(
+  DeletePlaylistEvent event,
+  Emitter<MusicState> emit,
+) {}
+
+void _onAddSongToPlaylist(
+  AddSongToPlaylistEvent event,
+  Emitter<MusicState> emit,
+) {}
+
+void _onRemoveSongFromPlaylist(
+  RemoveSongFromPlaylistEvent event,
+  Emitter<MusicState> emit,
+) {}
+
+
   @override
   Future<void> close() {
     _playbackSub.cancel();

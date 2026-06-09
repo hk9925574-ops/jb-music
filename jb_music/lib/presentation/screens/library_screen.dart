@@ -1,11 +1,11 @@
-// ─────────────────────────────────────────────────────────────
-// FILE: lib/presentation/screens/library_screen.dart
-// ─────────────────────────────────────────────────────────────
+// lib/presentation/screens/library_screen.dart
+// FIXED: No fake data — all tabs use real local songs from MusicBloc
 import 'package:flutter/material.dart';
 import 'package:jb_music/core/theme/rg_tokens.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:jb_music/application/bloc/music_bloc.dart';
 import 'package:jb_music/domain/entities/jb_song.dart';
+import 'package:jb_music/screens/player_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -17,34 +17,6 @@ class _LibraryScreenState extends State<LibraryScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tab;
   final List<String> _tabs = ['Liked', 'Recent', 'Albums', 'Artists'];
-
-  
-
-  final List<Map<String, String>> _recent = [
-    {'title': 'Midnight Rain', 'artist': 'Taylor Swift', 'type': 'Song'},
-    {'title': 'Chill Vibes', 'artist': 'Playlist', 'type': 'Playlist'},
-    {'title': 'Anti-Hero', 'artist': 'Taylor Swift', 'type': 'Song'},
-    {'title': 'Flowers', 'artist': 'Miley Cyrus', 'type': 'Song'},
-    {'title': 'Lo-Fi Study', 'artist': 'Playlist', 'type': 'Playlist'},
-    {'title': 'Golden Hour', 'artist': 'JVKE', 'type': 'Song'},
-  ];
-
-  final List<Map<String, String>> _albums = [
-    {'title': 'After Hours', 'artist': 'The Weeknd', 'year': '2020', 'songs': '14'},
-    {'title': 'Future Nostalgia', 'artist': 'Dua Lipa', 'year': '2020', 'songs': '11'},
-    {'title': "Harry's House", 'artist': 'Harry Styles', 'year': '2022', 'songs': '13'},
-    {'title': 'Midnights', 'artist': 'Taylor Swift', 'year': '2022', 'songs': '13'},
-    {'title': 'Justice', 'artist': 'Justin Bieber', 'year': '2021', 'songs': '16'},
-  ];
-
-  final List<Map<String, String>> _artists = [
-    {'name': 'The Weeknd', 'followers': '85.2M'},
-    {'name': 'Taylor Swift', 'followers': '92.1M'},
-    {'name': 'Dua Lipa', 'followers': '56.4M'},
-    {'name': 'Harry Styles', 'followers': '48.7M'},
-    {'name': 'Drake', 'followers': '78.3M'},
-    {'name': 'Billie Eilish', 'followers': '67.9M'},
-  ];
 
   @override
   void initState() {
@@ -58,68 +30,76 @@ class _LibraryScreenState extends State<LibraryScreen>
     super.dispose();
   }
 
- @override
-Widget build(BuildContext context) {
-  final state = context.watch<MusicBloc>().state;
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<MusicBloc, MusicState>(
+      builder: (context, state) {
+        final allTracks = state is MusicTracksLoadedState ? state.visibleTracks : <JBSong>[];
+        final likedTracks = state is MusicTracksLoadedState ? state.likedTracks : <JBSong>[];
 
-  final likedTracks =
-      state is MusicTracksLoadedState ? state.likedTracks : <JBSong>[];
+        // Recent = last 12 tracks
+        final recentTracks = allTracks.reversed.take(12).toList();
 
-  return Scaffold(
-    backgroundColor: RG.black,
-    body: NestedScrollView(
-      headerSliverBuilder: (context, _) => [
-        SliverAppBar(
-          floating: true,
+        // Albums: group by album
+        final albumMap = <String, List<JBSong>>{};
+        for (final t in allTracks) {
+          albumMap.putIfAbsent(t.album, () => []).add(t);
+        }
+        final albums = albumMap.entries.toList();
+
+        // Artists: group by artist
+        final artistMap = <String, List<JBSong>>{};
+        for (final t in allTracks) {
+          artistMap.putIfAbsent(t.artist, () => []).add(t);
+        }
+        final artists = artistMap.entries.toList();
+
+        return Scaffold(
           backgroundColor: RG.black,
-          title: const Text(
-            'Your Library',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-              fontSize: 22,
-            ),
-          ),
-          actions: [
-            TextButton.icon(
-              onPressed: () => _showPlaylistSheet(context),
-              icon: const Icon(Icons.add, color: RG.gold, size: 18),
-              label: const Text(
-                'Playlist',
-                style: TextStyle(
-                  color: RG.gold,
-                  fontWeight: FontWeight.w600,
+          body: NestedScrollView(
+            headerSliverBuilder: (context, _) => [
+              SliverAppBar(
+                floating: true,
+                backgroundColor: RG.black,
+                title: const Text('Your Library',
+                    style: TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.w800, fontSize: 22)),
+                actions: [
+                  TextButton.icon(
+                    onPressed: () => _showPlaylistSheet(context, allTracks),
+                    icon: const Icon(Icons.add, color: RG.gold, size: 18),
+                    label: const Text('Playlist',
+                        style: TextStyle(color: RG.gold, fontWeight: FontWeight.w600)),
+                  ),
+                ],
+                bottom: TabBar(
+                  controller: _tab,
+                  isScrollable: true,
+                  labelColor: RG.gold,
+                  unselectedLabelColor: Colors.white54,
+                  indicatorColor: RG.gold,
+                  indicatorWeight: 2,
+                  tabs: _tabs.map((t) => Tab(text: t)).toList(),
                 ),
               ),
+            ],
+            body: TabBarView(
+              controller: _tab,
+              children: [
+                _buildLikedSongs(context, likedTracks),
+                _buildRecent(context, recentTracks, state),
+                _buildAlbums(context, albums, state),
+                _buildArtists(context, artists, state),
+              ],
             ),
-          ],
-          bottom: TabBar(
-            controller: _tab,
-            isScrollable: true,
-            labelColor: RG.gold,
-            unselectedLabelColor: Colors.white54,
-            indicatorColor: RG.gold,
-            indicatorWeight: 2,
-            tabs: _tabs.map((t) => Tab(text: t)).toList(),
           ),
-        ),
-      ],
-      body: TabBarView(
-        controller: _tab,
-        children: [
-          _buildLikedSongs(likedTracks),
-          _buildRecent(),
-          _buildAlbums(),
-          _buildArtists(),
-        ],
-      ),
-    ),
-  );
-}
-  
+        );
+      },
+    );
+  }
 
-  // ── LIKED SONGS ──────────────────────────────────────────────
-Widget _buildLikedSongs(List<JBSong> likedTracks) {
+  // ── LIKED SONGS (real local) ─────────────────────────────────────────────
+  Widget _buildLikedSongs(BuildContext context, List<JBSong> likedTracks) {
     return ListView(
       children: [
         Container(
@@ -136,37 +116,35 @@ Widget _buildLikedSongs(List<JBSong> likedTracks) {
           child: Stack(
             children: [
               Positioned(
-                right: -20,
-                bottom: -20,
-                child: Icon(Icons.favorite,
-                    size: 120,
+                right: -20, bottom: -20,
+                child: Icon(Icons.favorite, size: 120,
                     color: Colors.white.withValues(alpha: 0.1)),
               ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('PLAYLIST',
-                      style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 1.5)),
+                      style: TextStyle(color: Colors.white70, fontSize: 11,
+                          fontWeight: FontWeight.w700, letterSpacing: 1.5)),
                   const SizedBox(height: 4),
                   const Text('Liked Songs',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 28,
-                          fontWeight: FontWeight.w800)),
+                      style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 4),
-                  Text(
-                      '${likedTracks.length} songs',
+                  Text('${likedTracks.length} songs',
                       style: const TextStyle(color: Colors.white70, fontSize: 13)),
                   const SizedBox(height: 16),
                   Row(
                     children: [
-                      _heroBtn(Icons.shuffle, 'Shuffle', () {}),
+                      _heroBtn(Icons.shuffle, 'Shuffle', () {
+                        if (likedTracks.isEmpty) return;
+                        context.read<MusicBloc>().add(PlayTrackEvent(index: 0, tracks: likedTracks));
+                        
+                      }),
                       const SizedBox(width: 12),
-                      _heroBtn(Icons.play_arrow, 'Play', () {}),
+                      _heroBtn(Icons.play_arrow, 'Play', () {
+                        if (likedTracks.isEmpty) return;
+                        context.read<MusicBloc>().add(PlayTrackEvent(index: 0, tracks: likedTracks));
+                      }),
                     ],
                   ),
                 ],
@@ -174,47 +152,58 @@ Widget _buildLikedSongs(List<JBSong> likedTracks) {
             ],
           ),
         ),
-        ...likedTracks.asMap().entries.map((e) {
-          final i = e.key;
-          final song = e.value;
-          
-          return ListTile(
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-            leading: CircleAvatar(
-              backgroundColor: RG.surface,
-              child: Text('${i + 1}',
-                  style: const TextStyle(color: Colors.white54, fontSize: 13)),
+        if (likedTracks.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(32),
+            child: Center(
+              child: Column(
+                children: [
+                  Icon(Icons.favorite_border, color: Colors.white24, size: 56),
+                  SizedBox(height: 12),
+                  Text('No liked songs yet',
+                      style: TextStyle(color: Colors.white38, fontSize: 14)),
+                  SizedBox(height: 6),
+                  Text('Tap ♥ on any song to add it here',
+                      style: TextStyle(color: Colors.white24, fontSize: 12)),
+                ],
+              ),
             ),
-            title: Text(song.title,
-                style: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w600)),
-            subtitle: Text(song.artist,
-                style: const TextStyle(color: Colors.white54, fontSize: 12)),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-  '${song.durationMs ~/ 60000}:${((song.durationMs ~/ 1000) % 60).toString().padLeft(2, '0')}',
-                    style: const TextStyle(
-                        color: Colors.white38, fontSize: 12)),
-                const SizedBox(width: 8),
-                GestureDetector(
-                  onTap: () {
-                    context.read<MusicBloc>().add(
-                      ToggleLikeTrackEvent(song),
-                    );
-                  },
-                  child:Icon(
-                          Icons.favorite,
-                          color: Colors.redAccent,
-                          size: 20,
+          )
+        else
+          ...likedTracks.asMap().entries.map((e) {
+            final i = e.key;
+            final song = e.value;
+            return ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+              onTap: () {
+                context.read<MusicBloc>().add(PlayTrackEvent(index: i, tracks: likedTracks));
+                Navigator.push(context, _playerRoute(context, song));
+              },
+              leading: CircleAvatar(
+                backgroundColor: RG.surface,
+                child: Text('${i + 1}',
+                    style: const TextStyle(color: Colors.white54, fontSize: 13)),
+              ),
+              title: Text(song.title,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+              subtitle: Text(song.artist,
+                  style: const TextStyle(color: Colors.white54, fontSize: 12)),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${song.durationMs ~/ 60000}:${((song.durationMs ~/ 1000) % 60).toString().padLeft(2, '0')}',
+                    style: const TextStyle(color: Colors.white38, fontSize: 12),
                   ),
-                ),
-              ],
-            ),
-          );
-        }),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () => context.read<MusicBloc>().add(ToggleLikeTrackEvent(song)),
+                    child: const Icon(Icons.favorite, color: Colors.redAccent, size: 20),
+                  ),
+                ],
+              ),
+            );
+          }),
       ],
     );
   }
@@ -235,106 +224,103 @@ Widget _buildLikedSongs(List<JBSong> likedTracks) {
               const SizedBox(width: 6),
               Text(label,
                   style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13)),
+                      color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13)),
             ],
           ),
         ),
       );
 
-  // ── RECENTLY PLAYED ──────────────────────────────────────────
-  Widget _buildRecent() {
+  // ── RECENTLY PLAYED (real) ───────────────────────────────────────────────
+  Widget _buildRecent(BuildContext context, List<JBSong> recentTracks, MusicState state) {
+    if (recentTracks.isEmpty) {
+      return const Center(
+        child: Text('No recent tracks', style: TextStyle(color: Colors.white38)),
+      );
+    }
     return GridView.builder(
       padding: const EdgeInsets.all(16),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          childAspectRatio: 2.8),
-      itemCount: _recent.length,
+          crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 2.8),
+      itemCount: recentTracks.length,
       itemBuilder: (_, i) {
-        final item = _recent[i];
-        return Container(
-          decoration: BoxDecoration(
-            color: RG.surface,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 52,
-                decoration: const BoxDecoration(
-                  color: RG.roseDeep,
-                  borderRadius: BorderRadius.horizontal(
-                      left: Radius.circular(10)),
+        final track = recentTracks[i];
+        return GestureDetector(
+          onTap: () {
+            context.read<MusicBloc>().add(PlayTrackEvent(index: i, tracks: recentTracks));
+            Navigator.push(context, _playerRoute(context, track));
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              color: RG.surface, borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 52,
+                  decoration: const BoxDecoration(
+                    color: RG.roseDeep,
+                    borderRadius: BorderRadius.horizontal(left: Radius.circular(10)),
+                  ),
+                  child: const Icon(Icons.music_note, color: Colors.white),
                 ),
-                child: Icon(
-                  item['type'] == 'Playlist'
-                      ? Icons.queue_music
-                      : Icons.music_note,
-                  color: Colors.white,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(track.title,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      Text(track.artist,
+                          style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(item['title']!,
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                    Text(item['artist']!,
-                        style: const TextStyle(
-                            color: Colors.white54, fontSize: 11)),
-                  ],
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },
     );
   }
 
-  // ── ALBUMS ───────────────────────────────────────────────────
-  Widget _buildAlbums() {
+  // ── ALBUMS (real, from local metadata) ──────────────────────────────────
+  Widget _buildAlbums(BuildContext context, List<MapEntry<String, List<JBSong>>> albums, MusicState state) {
+    if (albums.isEmpty) {
+      return const Center(child: Text('No albums found', style: TextStyle(color: Colors.white38)));
+    }
     return ListView.separated(
       padding: const EdgeInsets.all(16),
-      itemCount: _albums.length,
-      separatorBuilder: (_, __) => Divider(
-          color: Colors.white.withValues(alpha: 0.07), height: 1),
+      itemCount: albums.length,
+      separatorBuilder: (_, __) => Divider(color: Colors.white.withValues(alpha: 0.07), height: 1),
       itemBuilder: (_, i) {
-        final album = _albums[i];
+        final album = albums[i];
+        final songs = album.value;
+        final artist = songs.first.artist;
         return ListTile(
           contentPadding: const EdgeInsets.symmetric(vertical: 6),
+          onTap: () {
+            if (songs.isNotEmpty) {
+              context.read<MusicBloc>().add(PlayTrackEvent(index: 0, tracks: songs));
+              Navigator.push(context, _playerRoute(context, songs.first));
+            }
+          },
           leading: Container(
-            width: 54,
-            height: 54,
-            decoration: BoxDecoration(
-                color: RG.surface,
-                borderRadius: BorderRadius.circular(10)),
+            width: 54, height: 54,
+            decoration: BoxDecoration(color: RG.surface, borderRadius: BorderRadius.circular(10)),
             child: const Icon(Icons.album, color: RG.gold, size: 26),
           ),
-          title: Text(album['title']!,
-              style: const TextStyle(
-                  color: Colors.white, fontWeight: FontWeight.w600)),
-          subtitle: Text(
-              '${album['artist']} · ${album['year']}',
+          title: Text(album.key,
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+          subtitle: Text('$artist',
               style: const TextStyle(color: Colors.white54, fontSize: 12)),
           trailing: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text('${album['songs']} songs',
-                  style: const TextStyle(
-                      color: Colors.white38, fontSize: 11)),
-              const Icon(Icons.chevron_right,
-                  color: Colors.white38, size: 18),
+              Text('${songs.length} songs',
+                  style: const TextStyle(color: Colors.white38, fontSize: 11)),
+              const Icon(Icons.chevron_right, color: Colors.white38, size: 18),
             ],
           ),
         );
@@ -342,68 +328,85 @@ Widget _buildLikedSongs(List<JBSong> likedTracks) {
     );
   }
 
-  // ── ARTISTS ──────────────────────────────────────────────────
-  Widget _buildArtists() {
+  // ── ARTISTS (real) ───────────────────────────────────────────────────────
+  Widget _buildArtists(BuildContext context, List<MapEntry<String, List<JBSong>>> artists, MusicState state) {
+    if (artists.isEmpty) {
+      return const Center(child: Text('No artists found', style: TextStyle(color: Colors.white38)));
+    }
     return ListView.separated(
       padding: const EdgeInsets.all(16),
-      itemCount: _artists.length,
-      separatorBuilder: (_, __) => Divider(
-          color: Colors.white.withValues(alpha: 0.07), height: 1),
+      itemCount: artists.length,
+      separatorBuilder: (_, __) => Divider(color: Colors.white.withValues(alpha: 0.07), height: 1),
       itemBuilder: (_, i) {
-        final artist = _artists[i];
+        final artist = artists[i];
+        final songs = artist.value;
         return ListTile(
           contentPadding: const EdgeInsets.symmetric(vertical: 6),
+          onTap: () {
+            if (songs.isNotEmpty) {
+              context.read<MusicBloc>().add(PlayTrackEvent(index: 0, tracks: songs));
+              Navigator.push(context, _playerRoute(context, songs.first));
+            }
+          },
           leading: CircleAvatar(
             radius: 28,
             backgroundColor: RG.roseDeep.withValues(alpha: 0.3),
             child: Text(
-              artist['name']![0],
-              style: const TextStyle(
-                  color: RG.gold,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 18),
+              artist.key.isNotEmpty ? artist.key[0].toUpperCase() : '?',
+              style: const TextStyle(color: RG.gold, fontWeight: FontWeight.w800, fontSize: 18),
             ),
           ),
-          title: Text(artist['name']!,
-              style: const TextStyle(
-                  color: Colors.white, fontWeight: FontWeight.w600)),
-          subtitle: Text('${artist['followers']} followers',
+          title: Text(artist.key,
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+          subtitle: Text('${songs.length} songs',
               style: const TextStyle(color: Colors.white54, fontSize: 12)),
-          trailing: const Icon(Icons.chevron_right,
-              color: Colors.white38, size: 20),
+          trailing: const Icon(Icons.chevron_right, color: Colors.white38, size: 20),
         );
       },
     );
   }
 
-  // ── PLAYLIST BOTTOM SHEET ────────────────────────────────────
-  void _showPlaylistSheet(BuildContext context) {
+  // ── PLAYLIST SHEET ───────────────────────────────────────────────────────
+  void _showPlaylistSheet(BuildContext context, List<JBSong> allTracks) {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF1a1a2e),
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       isScrollControlled: true,
-      builder: (_) => const _PlaylistSheet(),
+      builder: (_) => BlocProvider.value(
+        value: BlocProvider.of<MusicBloc>(context),
+        child: _PlaylistSheet(allTracks: allTracks),
+      ),
     );
   }
+
+  PageRoute _playerRoute(BuildContext context, JBSong track) => PageRouteBuilder(
+    pageBuilder: (ctx, anim, _) => BlocProvider.value(
+      value: BlocProvider.of<MusicBloc>(ctx),
+      child: PlayerScreen(track: track),
+    ),
+    transitionsBuilder: (ctx, anim, _, child) => SlideTransition(
+      position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+          .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+      child: child,
+    ),
+    transitionDuration: const Duration(milliseconds: 400),
+  );
 }
 
-// ── PLAYLIST SHEET ───────────────────────────────────────────
+
+// ── PLAYLIST SHEET ────────────────────────────────────────────────────────────
 class _PlaylistSheet extends StatefulWidget {
-  const _PlaylistSheet();
+  final List<JBSong> allTracks;
+  const _PlaylistSheet({required this.allTracks});
   @override
   State<_PlaylistSheet> createState() => _PlaylistSheetState();
 }
 
 class _PlaylistSheetState extends State<_PlaylistSheet> {
-  final List<Map<String, dynamic>> _playlists = [
-    {'name': 'Morning Boost', 'songs': 24, 'smart': false},
-    {'name': 'Late Night Drive', 'songs': 18, 'smart': false},
-    {'name': 'Top Played', 'songs': 50, 'smart': true},
-    {'name': 'Workout Mix', 'songs': 30, 'smart': false},
-  ];
-
+  // Playlists stored locally; name → list of songs
+  final List<Map<String, dynamic>> _playlists = [];
   bool _creating = false;
   int? _editingIndex;
   final _nameCtrl = TextEditingController();
@@ -412,11 +415,12 @@ class _PlaylistSheetState extends State<_PlaylistSheet> {
   void _create() {
     if (_nameCtrl.text.trim().isEmpty) return;
     setState(() {
-      _playlists.add({'name': _nameCtrl.text.trim(), 'songs': 0, 'smart': _smart});
+      _playlists.add({'name': _nameCtrl.text.trim(), 'songs': <JBSong>[], 'smart': _smart});
       _nameCtrl.clear();
       _smart = false;
       _creating = false;
     });
+    context.read<MusicBloc>().add(CreatePlaylistEvent(_nameCtrl.text.trim()));
   }
 
   void _saveEdit(int i) {
@@ -430,14 +434,11 @@ class _PlaylistSheetState extends State<_PlaylistSheet> {
   }
 
   void _delete(int i) => setState(() => _playlists.removeAt(i));
-
-  void _startEdit(int i) {
-    setState(() {
-      _editingIndex = i;
-      _nameCtrl.text = _playlists[i]['name'];
-      _smart = _playlists[i]['smart'];
-    });
-  }
+  void _startEdit(int i) => setState(() {
+    _editingIndex = i;
+    _nameCtrl.text = _playlists[i]['name'];
+    _smart = _playlists[i]['smart'];
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -451,22 +452,16 @@ class _PlaylistSheetState extends State<_PlaylistSheet> {
         children: [
           Center(
             child: Container(
-              width: 40,
-              height: 4,
+              width: 40, height: 4,
               margin: const EdgeInsets.only(bottom: 16),
-              decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: BorderRadius.circular(2)),
+              decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
             ),
           ),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('Playlists',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700)),
+                  style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
               IconButton(
                 icon: const Icon(Icons.close, color: Colors.white54),
                 onPressed: () => Navigator.pop(context),
@@ -500,8 +495,7 @@ class _PlaylistSheetState extends State<_PlaylistSheet> {
             children: [
               Icon(Icons.add, color: RG.gold, size: 20),
               SizedBox(width: 10),
-              Text('New Playlist',
-                  style: TextStyle(color: RG.gold, fontWeight: FontWeight.w600)),
+              Text('New Playlist', style: TextStyle(color: RG.gold, fontWeight: FontWeight.w600)),
             ],
           ),
         ),
@@ -520,11 +514,8 @@ class _PlaylistSheetState extends State<_PlaylistSheet> {
               decoration: InputDecoration(
                 hintText: 'Playlist name...',
                 hintStyle: const TextStyle(color: Colors.white38),
-                filled: true,
-                fillColor: Colors.white.withValues(alpha: 0.06),
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide.none),
+                filled: true, fillColor: Colors.white.withValues(alpha: 0.06),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               ),
             ),
@@ -542,18 +533,14 @@ class _PlaylistSheetState extends State<_PlaylistSheet> {
                 Expanded(
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: RG.gold, foregroundColor: Colors.black),
-                    onPressed: _create,
-                    child: const Text('Create'),
+                    onPressed: _create, child: const Text('Create'),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white70,
-                        side: const BorderSide(color: Colors.white24)),
-                    onPressed: () => setState(() => _creating = false),
-                    child: const Text('Cancel'),
+                    style: OutlinedButton.styleFrom(foregroundColor: Colors.white70, side: const BorderSide(color: Colors.white24)),
+                    onPressed: () => setState(() => _creating = false), child: const Text('Cancel'),
                   ),
                 ),
               ],
@@ -574,11 +561,8 @@ class _PlaylistSheetState extends State<_PlaylistSheet> {
               decoration: InputDecoration(
                 hintText: 'Playlist name...',
                 hintStyle: const TextStyle(color: Colors.white38),
-                filled: true,
-                fillColor: Colors.white.withValues(alpha: 0.06),
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide.none),
+                filled: true, fillColor: Colors.white.withValues(alpha: 0.06),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
               ),
             ),
             const SizedBox(height: 8),
@@ -587,18 +571,14 @@ class _PlaylistSheetState extends State<_PlaylistSheet> {
                 Expanded(
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: RG.gold, foregroundColor: Colors.black),
-                    onPressed: () => _saveEdit(i),
-                    child: const Text('Save'),
+                    onPressed: () => _saveEdit(i), child: const Text('Save'),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white70,
-                        side: const BorderSide(color: Colors.white24)),
-                    onPressed: () => setState(() => _editingIndex = null),
-                    child: const Text('Cancel'),
+                    style: OutlinedButton.styleFrom(foregroundColor: Colors.white70, side: const BorderSide(color: Colors.white24)),
+                    onPressed: () => setState(() => _editingIndex = null), child: const Text('Cancel'),
                   ),
                 ),
               ],
@@ -607,58 +587,46 @@ class _PlaylistSheetState extends State<_PlaylistSheet> {
         ),
       );
 
-  Widget _playlistTile(Map<String, dynamic> p, int i) => Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        decoration: BoxDecoration(color: RG.surface, borderRadius: BorderRadius.circular(14)),
-        child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-          leading: Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(color: RG.black, borderRadius: BorderRadius.circular(10)),
-            child: Icon(
-              p['smart'] == true ? Icons.auto_awesome : Icons.queue_music,
-              color: RG.gold,
-              size: 22,
-            ),
-          ),
-          title: Row(
-            children: [
-              Text(p['name'],
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-              if (p['smart'] == true) ...[
-                const SizedBox(width: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: RG.gold.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: const Text('SMART',
-                      style: TextStyle(
-                          color: RG.gold,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.5)),
-                ),
-              ],
-            ],
-          ),
-          subtitle: Text('${p['songs']} songs',
-              style: const TextStyle(color: Colors.white54, fontSize: 12)),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.edit_outlined, color: Colors.white54, size: 18),
-                onPressed: () => _startEdit(i),
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
-                onPressed: () => _delete(i),
-              ),
-            ],
-          ),
+  Widget _playlistTile(Map<String, dynamic> p, int i) {
+    final songs = (p['songs'] as List<JBSong>);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(color: RG.surface, borderRadius: BorderRadius.circular(14)),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        onTap: () {
+          if (songs.isNotEmpty) {
+            context.read<MusicBloc>().add(PlayTrackEvent(index: 0, tracks: songs));
+            Navigator.pop(context);
+          }
+        },
+        leading: Container(
+          width: 46, height: 46,
+          decoration: BoxDecoration(color: RG.black, borderRadius: BorderRadius.circular(10)),
+          child: Icon(p['smart'] == true ? Icons.auto_awesome : Icons.queue_music, color: RG.gold, size: 22),
         ),
-      );
+        title: Row(
+          children: [
+            Text(p['name'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+            if (p['smart'] == true) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(color: RG.gold.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(4)),
+                child: const Text('SMART', style: TextStyle(color: RG.gold, fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
+              ),
+            ],
+          ],
+        ),
+        subtitle: Text('${songs.length} songs', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(icon: const Icon(Icons.edit_outlined, color: Colors.white54, size: 18), onPressed: () => _startEdit(i)),
+            IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18), onPressed: () => _delete(i)),
+          ],
+        ),
+      ),
+    );
+  }
 }

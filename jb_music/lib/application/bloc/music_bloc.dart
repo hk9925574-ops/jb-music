@@ -14,7 +14,19 @@ import 'package:jb_music/domain/entities/voice_intent.dart';
 import 'package:jb_music/domain/repositories/vault_repository.dart';
 import 'package:jb_music/domain/repositories/playlist_repository.dart';
 import 'package:jb_music/domain/usecases/get_tracks.dart';
-import 'package:jb_music/domain/entities/playlist_model.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PLAYLIST MODEL
+// ─────────────────────────────────────────────────────────────────────────────
+class JBPlaylist {
+  final String id;
+  String name;
+  final List<JBSong> songs;
+  JBPlaylist({required this.id, required this.name, this.songs = const []});
+  JBPlaylist copyWith({String? name, List<JBSong>? songs}) =>
+      JBPlaylist(id: id, name: name ?? this.name, songs: songs ?? this.songs);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // STATES
 // ─────────────────────────────────────────────────────────────────────────────
@@ -31,13 +43,34 @@ class MusicTracksLoadedState extends MusicState {
   final int currentTrackIndex;
   final bool isPlaying;
   final List<JBSong> likedTracks;
+  final List<JBSong> recentTracks;
+  final List<JBPlaylist> playlists;
 
   const MusicTracksLoadedState({
     required this.visibleTracks,
     required this.currentTrackIndex,
     required this.isPlaying,
     this.likedTracks = const [],
+    this.recentTracks = const [],
+    this.playlists = const [],
   });
+
+  MusicTracksLoadedState copyWith({
+    List<JBSong>? visibleTracks,
+    int? currentTrackIndex,
+    bool? isPlaying,
+    List<JBSong>? likedTracks,
+    List<JBSong>? recentTracks,
+    List<JBPlaylist>? playlists,
+  }) =>
+      MusicTracksLoadedState(
+        visibleTracks: visibleTracks ?? this.visibleTracks,
+        currentTrackIndex: currentTrackIndex ?? this.currentTrackIndex,
+        isPlaying: isPlaying ?? this.isPlaying,
+        likedTracks: likedTracks ?? this.likedTracks,
+        recentTracks: recentTracks ?? this.recentTracks,
+        playlists: playlists ?? this.playlists,
+      );
 
   @override
   List<Object> get props => [
@@ -45,6 +78,8 @@ class MusicTracksLoadedState extends MusicState {
         currentTrackIndex,
         isPlaying,
         likedTracks,
+        recentTracks,
+        playlists,
       ];
 }
 
@@ -79,55 +114,45 @@ class SearchTracksEvent extends MusicEvent {
   final String query;
   SearchTracksEvent(this.query);
 }
+
 class ToggleLikeTrackEvent extends MusicEvent {
   final JBSong song;
-
   ToggleLikeTrackEvent(this.song);
 }
+
+// ── Playlist events ───────────────────────────────────────────────────────────
 class CreatePlaylistEvent extends MusicEvent {
   final String name;
-
   CreatePlaylistEvent(this.name);
 }
 
 class DeletePlaylistEvent extends MusicEvent {
   final String playlistId;
-
   DeletePlaylistEvent(this.playlistId);
 }
 
 class AddSongToPlaylistEvent extends MusicEvent {
   final String playlistId;
-  final String songId;
-
-  AddSongToPlaylistEvent({
-    required this.playlistId,
-    required this.songId,
-  });
+  final JBSong song;
+  AddSongToPlaylistEvent({required this.playlistId, required this.song});
 }
 
 class RemoveSongFromPlaylistEvent extends MusicEvent {
   final String playlistId;
-  final String songId;
-
-  RemoveSongFromPlaylistEvent({
-    required this.playlistId,
-    required this.songId,
-  });
+  final JBSong song;
+  RemoveSongFromPlaylistEvent({required this.playlistId, required this.song});
 }
+
 // ── Voice events ──────────────────────────────────────────────────────────────
 class StartVoiceListeningEvent extends MusicEvent {}
 
 class StopVoiceListeningEvent extends MusicEvent {}
 
-/// Fired when VoskVoiceEngine recognises a command (via commandIntentStream)
 class VoiceCommandEvent extends MusicEvent {
   final VoiceCommandIntent intent;
+  VoiceCommandEvent({required this.intent});
+}
 
-  VoiceCommandEvent({
-    required this.intent,
-  });
-} // <-- ADD THIS
 // ─────────────────────────────────────────────────────────────────────────────
 // BLOC
 // ─────────────────────────────────────────────────────────────────────────────
@@ -143,11 +168,11 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
   late final StreamSubscription<PlayerState>       _playbackSub;
   late final StreamSubscription<VoiceCommandIntent> _voiceIntentSub;
 
-  List<JBSong> _allTracks = [];
-  List<JBSong> _likedTracks = [];
-  final List<PlaylistModel> _playlists = [];
+  List<JBSong>    _allTracks    = [];
+  List<JBSong>    _likedTracks  = [];
+  List<JBSong>    _recentTracks = [];
+  List<JBPlaylist> _playlists   = [];
 
-  // Expose voiceEngine so SettingsScreen can subscribe to resultStream
   VoskVoiceEngine get voiceEngine => _voiceEngine;
 
   MusicBloc({
@@ -161,12 +186,10 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
   })  : _voiceEngine = voiceEngine,
         super(MusicTracksLoadingState()) {
 
-    // ── Playback state → bloc ────────────────────────────────────────────────
     _playbackSub = audioHandler.playerStateStream.listen(
       (state) => add(PlaybackStateChangedEvent(state.playing)),
     );
 
-    // ── Voice intent → bloc ──────────────────────────────────────────────────
     _voiceIntentSub = _voiceEngine.commandIntentStream.listen(
       (intent) {
         debugPrint('BLOC RECEIVED: ${intent.action}');
@@ -174,46 +197,67 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
       },
     );
 
-    // ── Event handlers ───────────────────────────────────────────────────────
     on<LoadAudioTracksEvent>(_onLoadTracks);
     on<TogglePlaybackEvent>(_onTogglePlayback);
     on<PlayTrackEvent>(_onPlayTrack);
     on<PlaybackStateChangedEvent>(_onPlaybackStateChanged);
     on<SearchTracksEvent>(_onSearch);
     on<ToggleLikeTrackEvent>(_onToggleLikeTrack);
-    on<StartVoiceListeningEvent>(_onStartVoice);
-    on<StopVoiceListeningEvent>(_onStopVoice);
-    on<VoiceCommandEvent>(_onVoiceCommand);
-    
     on<CreatePlaylistEvent>(_onCreatePlaylist);
     on<DeletePlaylistEvent>(_onDeletePlaylist);
     on<AddSongToPlaylistEvent>(_onAddSongToPlaylist);
     on<RemoveSongFromPlaylistEvent>(_onRemoveSongFromPlaylist);
-
-   
+    on<StartVoiceListeningEvent>(_onStartVoice);
+    on<StopVoiceListeningEvent>(_onStopVoice);
+    on<VoiceCommandEvent>(_onVoiceCommand);
   }
 
-  // ── Track loading ──────────────────────────────────────────────────────────
+  MusicTracksLoadedState get _currentLoaded => state is MusicTracksLoadedState
+      ? state as MusicTracksLoadedState
+      : MusicTracksLoadedState(
+          visibleTracks: _allTracks,
+          currentTrackIndex: 0,
+          isPlaying: false,
+          likedTracks: _likedTracks,
+          recentTracks: _recentTracks,
+          playlists: _playlists,
+        );
+
+  MusicTracksLoadedState _buildState({
+    List<JBSong>? visibleTracks,
+    int? currentTrackIndex,
+    bool? isPlaying,
+  }) {
+    final cur = _currentLoaded;
+    return cur.copyWith(
+      visibleTracks: visibleTracks ?? cur.visibleTracks,
+      currentTrackIndex: currentTrackIndex ?? cur.currentTrackIndex,
+      isPlaying: isPlaying ?? cur.isPlaying,
+      likedTracks: List.from(_likedTracks),
+      recentTracks: List.from(_recentTracks),
+      playlists: List.from(_playlists),
+    );
+  }
+
   Future<void> _onLoadTracks(
       LoadAudioTracksEvent event, Emitter<MusicState> emit) async {
     emit(MusicTracksLoadingState());
     try {
       final tracks = await getTracksUseCase.call();
       _allTracks = tracks.cast<JBSong>();
-      emit(
-         MusicTracksLoadedState(
-           visibleTracks: _allTracks,
-           currentTrackIndex: 0,
-           isPlaying: false,
-           likedTracks: _likedTracks,
-          ),
-       );
+      emit(MusicTracksLoadedState(
+        visibleTracks: _allTracks,
+        currentTrackIndex: 0,
+        isPlaying: false,
+        likedTracks: _likedTracks,
+        recentTracks: _recentTracks,
+        playlists: _playlists,
+      ));
     } catch (e) {
       emit(MusicErrorState('Failed to load tracks: $e'));
     }
   }
 
-  // ── Playback ───────────────────────────────────────────────────────────────
   void _onTogglePlayback(
       TogglePlaybackEvent event, Emitter<MusicState> emit) {
     audioHandler.playing ? audioHandler.pause() : audioHandler.play();
@@ -224,59 +268,101 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     final uris = event.tracks.map((t) => 'file://${t.path}').toList();
     await audioHandler.updatePlaylist(uris);
     await audioHandler.skipToQueueItem(event.index);
-    emit(
-      MusicTracksLoadedState(
-        visibleTracks: event.tracks,
-        currentTrackIndex: event.index,
-        isPlaying: true,
-        likedTracks: _likedTracks,
-      ),
-    );
+
+    final song = event.tracks[event.index];
+    _recentTracks
+      ..removeWhere((s) => s.path == song.path)
+      ..insert(0, song);
+    if (_recentTracks.length > 20) _recentTracks = _recentTracks.sublist(0, 20);
+
+    emit(_buildState(
+      visibleTracks: event.tracks,
+      currentTrackIndex: event.index,
+      isPlaying: true,
+    ));
   }
 
   void _onPlaybackStateChanged(
       PlaybackStateChangedEvent event, Emitter<MusicState> emit) {
     if (state is MusicTracksLoadedState) {
-      final cur = state as MusicTracksLoadedState;
-      emit(
-        MusicTracksLoadedState(
-          visibleTracks: cur.visibleTracks,
-          currentTrackIndex: cur.currentTrackIndex,
-          isPlaying: event.isPlaying,
-          likedTracks: _likedTracks,
-        ),
-      );
+      emit(_buildState(isPlaying: event.isPlaying));
     }
   }
 
   void _onSearch(SearchTracksEvent event, Emitter<MusicState> emit) {
     final q = event.query.toLowerCase();
-    final filtered = _allTracks
-        .where((t) =>
-            t.title.toLowerCase().contains(q) ||
-            t.artist.toLowerCase().contains(q))
-        .toList();
-    final currentIndex = state is MusicTracksLoadedState
-        ? (state as MusicTracksLoadedState).currentTrackIndex
-        : 0;
-    final isPlaying = state is MusicTracksLoadedState
-        ? (state as MusicTracksLoadedState).isPlaying
-        : false;
-    emit(
-      MusicTracksLoadedState(
-        visibleTracks: filtered,
-        currentTrackIndex: currentIndex,
-        isPlaying: isPlaying,
-        likedTracks: _likedTracks,
-      ),
-    );
+    final filtered = q.isEmpty
+        ? _allTracks
+        : _allTracks
+            .where((t) =>
+                t.title.toLowerCase().contains(q) ||
+                t.artist.toLowerCase().contains(q))
+            .toList();
+    final cur = _currentLoaded;
+    emit(_buildState(
+      visibleTracks: filtered,
+      currentTrackIndex: cur.currentTrackIndex,
+      isPlaying: cur.isPlaying,
+    ));
   }
 
-  // ── Voice ──────────────────────────────────────────────────────────────────
+  void _onToggleLikeTrack(
+      ToggleLikeTrackEvent event, Emitter<MusicState> emit) {
+    if (state is! MusicTracksLoadedState) return;
+    final exists = _likedTracks.any((s) => s.path == event.song.path);
+    if (exists) {
+      _likedTracks.removeWhere((s) => s.path == event.song.path);
+    } else {
+      _likedTracks.add(event.song);
+    }
+    emit(_buildState());
+  }
+
+  void _onCreatePlaylist(
+      CreatePlaylistEvent event, Emitter<MusicState> emit) {
+    final pl = JBPlaylist(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      name: event.name,
+      songs: [],
+    );
+    _playlists.add(pl);
+    emit(_buildState());
+  }
+
+  void _onDeletePlaylist(
+      DeletePlaylistEvent event, Emitter<MusicState> emit) {
+    _playlists.removeWhere((p) => p.id == event.playlistId);
+    emit(_buildState());
+  }
+
+  void _onAddSongToPlaylist(
+      AddSongToPlaylistEvent event, Emitter<MusicState> emit) {
+    final idx = _playlists.indexWhere((p) => p.id == event.playlistId);
+    if (idx < 0) return;
+    final pl = _playlists[idx];
+    if (pl.songs.any((s) => s.path == event.song.path)) return;
+    _playlists[idx] = pl.copyWith(songs: [...pl.songs, event.song]);
+    emit(_buildState());
+  }
+
+  void _onRemoveSongFromPlaylist(
+      RemoveSongFromPlaylistEvent event, Emitter<MusicState> emit) {
+    final idx = _playlists.indexWhere((p) => p.id == event.playlistId);
+    if (idx < 0) return;
+    final pl = _playlists[idx];
+    _playlists[idx] = pl.copyWith(
+        songs: pl.songs.where((s) => s.path != event.song.path).toList());
+    emit(_buildState());
+  }
+
   Future<void> _onStartVoice(
       StartVoiceListeningEvent event, Emitter<MusicState> emit) async {
     try {
-      await _voiceEngine.startListening();
+      if (!_voiceEngine.isReady) {
+        await _voiceEngine.initializeVoicePipeline();
+      } else {
+        await _voiceEngine.startListening();
+      }
     } catch (e) {
       debugPrint('❌ Voice start error: $e');
     }
@@ -286,118 +372,44 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
       StopVoiceListeningEvent event, Emitter<MusicState> emit) async {
     await _voiceEngine.stopListening();
   }
-Future<void> _onVoiceCommand(
-  
-  VoiceCommandEvent event,
-  Emitter<MusicState> emit,
-) async {debugPrint('EXECUTING: ${event.intent.action}');
-  final action = event.intent.action;
 
-  switch (action) {
-    case JbVoiceAction.play:
-      await audioHandler.play();
-      break;
-
-    case JbVoiceAction.pause:
-      await audioHandler.pause();
-      break;
-
-    case JbVoiceAction.next:
-      await audioHandler.skipToNext();
-      break;
-
-    case JbVoiceAction.previous:
-      await audioHandler.skipToPrevious();
-      break;
-
-    case JbVoiceAction.shuffle:
-      await audioHandler.setShuffleMode(
-        AudioServiceShuffleMode.all,
-      );
-      break;
-
-    case JbVoiceAction.repeat:
-      await audioHandler.setRepeatMode(
-        AudioServiceRepeatMode.all,
-      );
-      break;
-
-    case JbVoiceAction.volumeUp:
-      debugPrint('Volume up');
-      break;
-
-    case JbVoiceAction.volumeDown:
-      debugPrint('Volume down');
-      break;
-
-    case JbVoiceAction.checkSafety:
-      debugPrint('Safety check');
-      break;
-
-    case JbVoiceAction.unknown:
-      debugPrint('Unknown command');
-      break;
+  Future<void> _onVoiceCommand(
+      VoiceCommandEvent event, Emitter<MusicState> emit) async {
+    debugPrint('EXECUTING: ${event.intent.action}');
+    final action = event.intent.action;
+    switch (action) {
+      case JbVoiceAction.play:
+        await audioHandler.play();
+        break;
+      case JbVoiceAction.pause:
+        await audioHandler.pause();
+        break;
+      case JbVoiceAction.next:
+        await audioHandler.skipToNext();
+        break;
+      case JbVoiceAction.previous:
+        await audioHandler.skipToPrevious();
+        break;
+      case JbVoiceAction.shuffle:
+        await audioHandler.setShuffleMode(AudioServiceShuffleMode.all);
+        break;
+      case JbVoiceAction.repeat:
+        await audioHandler.setRepeatMode(AudioServiceRepeatMode.all);
+        break;
+      case JbVoiceAction.volumeUp:
+        debugPrint('Volume up');
+        break;
+      case JbVoiceAction.volumeDown:
+        debugPrint('Volume down');
+        break;
+      case JbVoiceAction.checkSafety:
+        debugPrint('Safety check');
+        break;
+      case JbVoiceAction.unknown:
+        debugPrint('Unknown command');
+        break;
+    }
   }
-}
-  
-  // ── Cleanup ────────────────────────────────────────────────────────────────
- void _onToggleLikeTrack(
-  ToggleLikeTrackEvent event,
-  Emitter<MusicState> emit,
-) {
-  if (state is! MusicTracksLoadedState) return;
-
-  final current = state as MusicTracksLoadedState;
-
-  final exists = _likedTracks.any(
-    (song) => song.path == event.song.path,
-  );
-
-  if (exists) {
-    _likedTracks.removeWhere(
-      (song) => song.path == event.song.path,
-    );
-  } else {
-    _likedTracks.add(event.song);
-  }
-
-  emit(
-    MusicTracksLoadedState(
-      visibleTracks: current.visibleTracks,
-      currentTrackIndex: current.currentTrackIndex,
-      isPlaying: current.isPlaying,
-      likedTracks: List.from(_likedTracks),
-    ),
-  );
-}
-void _onCreatePlaylist(
-  CreatePlaylistEvent event,
-  Emitter<MusicState> emit,
-) {
-  final playlist = PlaylistModel(
-    id: DateTime.now().millisecondsSinceEpoch.toString(),
-    name: event.name,
-    songIds: [],
-  );
-
-  _playlists.add(playlist);
-}
-
-void _onDeletePlaylist(
-  DeletePlaylistEvent event,
-  Emitter<MusicState> emit,
-) {}
-
-void _onAddSongToPlaylist(
-  AddSongToPlaylistEvent event,
-  Emitter<MusicState> emit,
-) {}
-
-void _onRemoveSongFromPlaylist(
-  RemoveSongFromPlaylistEvent event,
-  Emitter<MusicState> emit,
-) {}
-
 
   @override
   Future<void> close() {

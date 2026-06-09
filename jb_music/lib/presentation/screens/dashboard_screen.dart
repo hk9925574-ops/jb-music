@@ -81,7 +81,7 @@ class _DashboardScreenState extends State<DashboardScreen>
         content: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFF1DB954),
+            color: const Color(0xFFD4A847),
             borderRadius: BorderRadius.circular(12),
           ),
           child: const Row(children: [
@@ -196,7 +196,7 @@ class _LoadedView extends StatelessWidget {
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [Color(0xFF1DB954), Color(0xFF121212)],
+                colors: [Color(0xFF3D1A6B), Color(0xFF121212)],
                 stops: [0.0, 1.0],
               ),
             ),
@@ -236,14 +236,14 @@ class _LoadedView extends StatelessWidget {
                                 shape: BoxShape.circle,
                                 color: voiceActive
                                     ? Color.lerp(
-                                        const Color(0xFF1DB954),
+                                        const Color(0xFFD4A847),
                                         const Color(0xFF14833B),
                                         voicePulse.value)!
                                     : Colors.white12,
                                 boxShadow: voiceActive
                                     ? [
                                         BoxShadow(
-                                          color: const Color(0xFF1DB954)
+                                          color: const Color(0xFFD4A847)
                                               .withValues(
                                                   alpha: 0.4 *
                                                       voicePulse.value),
@@ -492,8 +492,8 @@ class _QuickCard extends StatelessWidget {
 
   Color _color() {
     const palette = [
-      Color(0xFF8D65C8), Color(0xFF1DB954), Color(0xFFE91E63),
-      Color(0xFF2196F3), Color(0xFFFF9800), Color(0xFF009688),
+      Color(0xFF8D65C8), Color(0xFFD4A847), Color(0xFFE91E63),
+      Color(0xFF2196F3), Color(0xFFFF9800), Color(0xFF7C3AED),
       Color(0xFFF44336), Color(0xFF3F51B5),
     ];
     return palette[track.id.hashCode.abs() % palette.length];
@@ -563,8 +563,8 @@ class _FeaturedCard extends StatelessWidget {
 
   Color _color() {
     const palette = [
-      Color(0xFF8D65C8), Color(0xFF1DB954), Color(0xFFE91E63),
-      Color(0xFF2196F3), Color(0xFFFF9800), Color(0xFF009688),
+      Color(0xFF8D65C8), Color(0xFFD4A847), Color(0xFFE91E63),
+      Color(0xFF2196F3), Color(0xFFFF9800), Color(0xFF7C3AED),
       Color(0xFFF44336), Color(0xFF3F51B5),
     ];
     return palette[track.id.hashCode.abs() % palette.length];
@@ -590,7 +590,7 @@ class _FeaturedCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                     border: isActive
                         ? Border.all(
-                            color: const Color(0xFF1DB954), width: 2)
+                            color: const Color(0xFFD4A847), width: 2)
                         : null,
                   ),
                   child: Column(
@@ -617,7 +617,7 @@ class _FeaturedCard extends StatelessWidget {
                     child: Container(
                       width: 36, height: 36,
                       decoration: const BoxDecoration(
-                        color: Color(0xFF1DB954),
+                        color: Color(0xFFD4A847),
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
@@ -679,7 +679,7 @@ class _LikedChip extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.favorite, color: Color(0xFF1DB954), size: 16),
+            const Icon(Icons.favorite, color: Color(0xFFD4A847), size: 16),
             const SizedBox(width: 8),
             Text(
               track.title,
@@ -717,8 +717,8 @@ class _TrackRow extends StatelessWidget {
 
   Color _color() {
     const palette = [
-      Color(0xFF8D65C8), Color(0xFF1DB954), Color(0xFFE91E63),
-      Color(0xFF2196F3), Color(0xFFFF9800), Color(0xFF009688),
+      Color(0xFF8D65C8), Color(0xFFD4A847), Color(0xFFE91E63),
+      Color(0xFF2196F3), Color(0xFFFF9800), Color(0xFF7C3AED),
     ];
     return palette[track.id.hashCode.abs() % palette.length];
   }
@@ -769,7 +769,7 @@ class _TrackRow extends StatelessWidget {
                     track.title,
                     style: TextStyle(
                       color: isActive
-                          ? const Color(0xFF1DB954)
+                          ? const Color(0xFFD4A847)
                           : Colors.white,
                       fontWeight: FontWeight.w600,
                       fontSize: 14,
@@ -806,7 +806,7 @@ class _TrackRow extends StatelessWidget {
                 child: Icon(
                   isLiked ? Icons.favorite : Icons.favorite_border,
                   color: isLiked
-                      ? const Color(0xFF1DB954)
+                      ? const Color(0xFFD4A847)
                       : Colors.white38,
                   size: 18,
                 ),
@@ -840,8 +840,8 @@ class _SpotifyMiniPlayer extends StatelessWidget {
 
     Color artColor() {
       const palette = [
-        Color(0xFF8D65C8), Color(0xFF1DB954), Color(0xFFE91E63),
-        Color(0xFF2196F3), Color(0xFFFF9800), Color(0xFF009688),
+        Color(0xFF8D65C8), Color(0xFFD4A847), Color(0xFFE91E63),
+        Color(0xFF2196F3), Color(0xFFFF9800), Color(0xFF7C3AED),
       ];
       return palette[track.id.hashCode.abs() % palette.length];
     }
@@ -883,7 +883,7 @@ class _SpotifyMiniPlayer extends StatelessWidget {
                       minHeight: 3,
                       backgroundColor: Colors.white12,
                       valueColor: const AlwaysStoppedAnimation<Color>(
-                          Color(0xFF1DB954)),
+                          Color(0xFFD4A847)),
                     ),
                   );
                 },
@@ -938,7 +938,7 @@ class _SpotifyMiniPlayer extends StatelessWidget {
                     child: Icon(
                       isLiked ? Icons.favorite : Icons.favorite_border,
                       color: isLiked
-                          ? const Color(0xFF1DB954)
+                          ? const Color(0xFFD4A847)
                           : Colors.white38,
                       size: 22,
                     ),
@@ -1035,7 +1035,7 @@ class _MiniEqualizerState extends State<_MiniEqualizer>
               height: _anims[i].value,
               margin: const EdgeInsets.symmetric(horizontal: 1),
               decoration: BoxDecoration(
-                color: const Color(0xFF1DB954),
+                color: const Color(0xFFD4A847),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -1060,7 +1060,7 @@ class _LoadingView extends StatelessWidget {
           SizedBox(
             width: 44, height: 44,
             child: CircularProgressIndicator(
-              color: Color(0xFF1DB954),
+              color: Color(0xFFD4A847),
               strokeWidth: 2,
             ),
           ),

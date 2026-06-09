@@ -124,8 +124,10 @@ class _PlatformPermissionGateState extends State<PlatformPermissionGate> {
       final androidInfo = await DeviceInfoPlugin().androidInfo;
       final sdkInt = androidInfo.version.sdkInt;
 
-      final permission = sdkInt >= 33 ? Permission.audio : Permission.storage;
-      final status = await permission.request();
+      final storagePermission = sdkInt >= 33 ? Permission.audio : Permission.storage;
+      // Request mic too — needed for voice commands
+      final statuses = await [storagePermission, Permission.microphone].request();
+      final status = statuses[storagePermission]!;
 
       if (!mounted) return;
 

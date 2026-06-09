@@ -24,7 +24,7 @@ class RG {
   static const Color border = Color(0xFF2A2A2A);
   static const Color borderGold = Color(0x55D4A847);
 
-  static const Color success = Color(0xFF4CAF50);
+  static const Color success = Color(0xFFB388FF);
   static const Color error = Color(0xFFCF6679);
   static const Color warning = Color(0xFFF39C12);
   static const Color info = Color(0xFF3498DB);

@@ -39,6 +39,7 @@ dependencies:
 
   # Voice
   vosk_flutter: ^0.3.48
+  speech_to_text: ^7.4.0
   palette_generator: ^0.3.3+3  
   # --- Uncomment when you implement these features ---
     
@@ -55,6 +56,5 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/voice/vosk-model-small-en-us-0.15/
     - assets/mock_tracks/demo_song.mp3
     - assets/mock_tracks/demo_song.lrc

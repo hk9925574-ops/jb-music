@@ -223,11 +223,18 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
           playlists: _playlists,
         );
 
+  String _voiceSearchQuery = '';
+  int _sleepTimerMinutes = 0;
+
   MusicTracksLoadedState _buildState({
     List<JBSong>? visibleTracks,
     int? currentTrackIndex,
     bool? isPlaying,
+    String? voiceSearchQuery,
+    int? sleepTimerMinutes,
   }) {
+    if (voiceSearchQuery != null) _voiceSearchQuery = voiceSearchQuery;
+    if (sleepTimerMinutes != null) _sleepTimerMinutes = sleepTimerMinutes;
     final cur = _currentLoaded;
     return cur.copyWith(
       visibleTracks: visibleTracks ?? cur.visibleTracks,
@@ -360,9 +367,9 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     try {
       if (!_voiceEngine.isReady) {
         await _voiceEngine.initializeVoicePipeline();
-      } else {
-        await _voiceEngine.startListening();
       }
+      // Always call startListening after init or if already ready
+      await _voiceEngine.startListening();
     } catch (e) {
       debugPrint('❌ Voice start error: $e');
     }
@@ -373,16 +380,24 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     await _voiceEngine.stopListening();
   }
 
+  Timer? _sleepTimer;
+
   Future<void> _onVoiceCommand(
       VoiceCommandEvent event, Emitter<MusicState> emit) async {
-    debugPrint('EXECUTING: ${event.intent.action}');
-    final action = event.intent.action;
-    switch (action) {
+    final intent = event.intent;
+    debugPrint('🎤 EXECUTING: \${intent.action} | payload: "\${intent.payload}"');
+
+    switch (intent.action) {
+      // ── Playback ──────────────────────────────────────────────────────────
       case JbVoiceAction.play:
         await audioHandler.play();
         break;
       case JbVoiceAction.pause:
         await audioHandler.pause();
+        break;
+      case JbVoiceAction.togglePlayPause:
+        final isPlaying = audioHandler.playing;
+        isPlaying ? await audioHandler.pause() : await audioHandler.play();
         break;
       case JbVoiceAction.next:
         await audioHandler.skipToNext();
@@ -396,17 +411,86 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
       case JbVoiceAction.repeat:
         await audioHandler.setRepeatMode(AudioServiceRepeatMode.all);
         break;
+
+      // ── Volume ────────────────────────────────────────────────────────────
       case JbVoiceAction.volumeUp:
-        debugPrint('Volume up');
+        debugPrint('🔊 Volume up (implement with audioHandler volume API)');
         break;
       case JbVoiceAction.volumeDown:
-        debugPrint('Volume down');
+        debugPrint('🔉 Volume down');
         break;
+
+      // ── Search song ───────────────────────────────────────────────────────
+      case JbVoiceAction.searchSong:
+        final query = intent.payload ?? '';
+        if (query.isNotEmpty) {
+          debugPrint('🔍 Voice search: "\$query"');
+          _voiceSearchQuery = query;
+          emit(_buildState(voiceSearchQuery: query));
+        }
+        break;
+
+      // ── Play song by name ─────────────────────────────────────────────────
+      case JbVoiceAction.playSong:
+        final query = (intent.payload ?? '').toLowerCase();
+        if (query.isNotEmpty) {
+          debugPrint('🎵 Voice play song: "\$query"');
+          final match = _allTracks.indexWhere((t) =>
+              t.title.toLowerCase().contains(query) ||
+              t.artist.toLowerCase().contains(query));
+          if (match != -1) {
+            add(PlayTrackEvent(index: match, tracks: _allTracks));
+            debugPrint('✅ Playing: \${_allTracks[match].title}');
+          } else {
+            // Fall back to search if no direct match
+            _voiceSearchQuery = query;
+            emit(_buildState(voiceSearchQuery: query));
+            debugPrint('⚠️ No exact match — showing search results for "\$query"');
+          }
+        }
+        break;
+
+      // ── Play playlist ─────────────────────────────────────────────────────
+      case JbVoiceAction.playPlaylist:
+        final name = (intent.payload ?? '').toLowerCase();
+        if (name.isNotEmpty) {
+          final playlist = _playlists.firstWhere(
+            (p) => p.name.toLowerCase().contains(name),
+            orElse: () => _playlists.isNotEmpty ? _playlists.first : throw Exception('no playlists'),
+          );
+          debugPrint('📋 Playing playlist: \${playlist.name}');
+          if (playlist.songs.isNotEmpty) {
+            add(PlayTrackEvent(index: 0, tracks: playlist.songs));
+          }
+        }
+        break;
+
+      // ── Sleep timer ───────────────────────────────────────────────────────
+      case JbVoiceAction.setSleepTimer:
+        final mins = int.tryParse(intent.payload ?? '30') ?? 30;
+        _sleepTimer?.cancel();
+        _sleepTimer = Timer(Duration(minutes: mins), () async {
+          debugPrint('⏰ Sleep timer fired — pausing');
+          await audioHandler.pause();
+        });
+        debugPrint('⏰ Sleep timer set for \$mins minutes');
+        emit(_buildState(sleepTimerMinutes: mins));
+        break;
+
+      case JbVoiceAction.cancelSleepTimer:
+        _sleepTimer?.cancel();
+        _sleepTimer = null;
+        debugPrint('⏰ Sleep timer cancelled');
+        emit(_buildState(sleepTimerMinutes: 0));
+        break;
+
+      // ── Safety ────────────────────────────────────────────────────────────
       case JbVoiceAction.checkSafety:
-        debugPrint('Safety check');
+        debugPrint('🛡️ Safety check requested');
         break;
+
       case JbVoiceAction.unknown:
-        debugPrint('Unknown command');
+        debugPrint('❓ Unknown voice command');
         break;
     }
   }

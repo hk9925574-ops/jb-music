@@ -117,7 +117,7 @@ class _SpotifyNavBar extends StatelessWidget {
                         width: isActive ? 4 : 0,
                         height: isActive ? 4 : 0,
                         decoration: const BoxDecoration(
-                          color: Color(0xFF1DB954),
+                          color: Color(0xFFD4A847),
                           shape: BoxShape.circle,
                         ),
                       ),

@@ -8,7 +8,7 @@ import 'package:jb_music/core/theme/rg_tokens.dart';
 import 'package:jb_music/domain/entities/jb_song.dart';
 import 'package:jb_music/presentation/widgets/equalizer_controls.dart';
 import 'package:jb_music/screens/player_screen.dart';
-
+import 'package:jb_music/presentation/screens/jb_assistant_screen.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 // DASHBOARD
 // ─────────────────────────────────────────────────────────────────────────────
@@ -229,9 +229,17 @@ class _LoadedView extends StatelessWidget {
                         animation: voicePulse,
                         builder: (_, __) {
                           return GestureDetector(
-                            onTap: onVoiceToggle,
-                            child: Container(
-                              width: 40, height: 40,
+                                    onTap: onVoiceToggle,
+                                    onLongPress: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => const JBAssistantScreen(),
+                                        ),
+                                      );
+                                    },
+                                    child: Container(
+                              width: 48, height: 48,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 color: voiceActive
@@ -255,7 +263,7 @@ class _LoadedView extends StatelessWidget {
                               child: Icon(
                                 voiceActive ? Icons.mic : Icons.mic_none,
                                 color: Colors.white,
-                                size: 20,
+                                size: 24,
                               ),
                             ),
                           );

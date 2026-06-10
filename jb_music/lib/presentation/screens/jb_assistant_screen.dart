@@ -93,7 +93,9 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
     _orbCtrl = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
-    )..repeat();
+    );
+    // Only animate when active — prevents BLASTBufferQueue overflow
+    if (_orbState != OrbState.idle) _orbCtrl.repeat();
 
     _initTts();
     _bindVoiceStream();
@@ -160,8 +162,10 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
     if (_micActive) {
       bloc.add(StartVoiceListeningEvent());
       setState(() => _orbState = OrbState.listening);
+      _orbCtrl.repeat();
     } else {
       bloc.add(StopVoiceListeningEvent());
+      _orbCtrl.stop();
       setState(() {
         _orbState       = OrbState.idle;
         _liveTranscript = '';

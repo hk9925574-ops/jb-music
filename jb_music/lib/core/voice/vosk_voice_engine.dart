@@ -43,7 +43,12 @@ class VoskVoiceEngine {
           debugPrint('⚠️ Voice error: ${error.errorMsg}');
           _isListening = false;
           if (!error.permanent && _shouldListen) {
-            _scheduleRestart();
+            _isListening = false;
+            // error_busy = recognizer not released yet; wait longer
+            final delay = error.errorMsg == 'error_busy'
+                ? const Duration(milliseconds: 1200)
+                : const Duration(milliseconds: 600);
+            _scheduleRestart(delay: delay);
           }
         },
         onStatus: (status) {
@@ -51,7 +56,8 @@ class VoskVoiceEngine {
           if ((status == 'done' || status == 'notListening') &&
               _shouldListen) {
             _isListening = false;
-            _scheduleRestart(delay: const Duration(milliseconds: 300));
+            // Give Android time to fully release the recognizer
+            _scheduleRestart(delay: const Duration(milliseconds: 800));
           }
         },
       );
@@ -80,6 +86,10 @@ class VoskVoiceEngine {
     if (_isListening || !_shouldListen) return;
 
     _restartTimer?.cancel();
+
+    // Force-stop any lingering session to avoid error_busy
+    try { await _speech.stop(); } catch (_) {}
+    await Future.delayed(const Duration(milliseconds: 150));
 
     try {
       _isListening = true;
@@ -117,7 +127,7 @@ class VoskVoiceEngine {
           }
         },
         listenFor: const Duration(seconds: 30),
-        pauseFor: const Duration(seconds: 3),
+        pauseFor: const Duration(milliseconds: 500),
         partialResults: false,
         cancelOnError: false,
         // FIX: use search mode — optimised for short commands, not long dictation

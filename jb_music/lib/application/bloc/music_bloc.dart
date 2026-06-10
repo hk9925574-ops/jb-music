@@ -1,6 +1,6 @@
 // lib/application/bloc/music_bloc.dart
 import 'dart:async';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:audio_service/audio_service.dart';
@@ -45,6 +45,10 @@ class MusicTracksLoadedState extends MusicState {
   final List<JBSong> likedTracks;
   final List<JBSong> recentTracks;
   final List<JBPlaylist> playlists;
+  final String voiceSearchQuery;
+  final int sleepTimerMinutes;
+  final Duration todayListened;
+  final Map<String, int> playCount;
 
   const MusicTracksLoadedState({
     required this.visibleTracks,
@@ -53,6 +57,10 @@ class MusicTracksLoadedState extends MusicState {
     this.likedTracks = const [],
     this.recentTracks = const [],
     this.playlists = const [],
+    this.voiceSearchQuery = '',
+    this.sleepTimerMinutes = 0,
+    this.todayListened = Duration.zero,
+    this.playCount = const {},
   });
 
   MusicTracksLoadedState copyWith({
@@ -62,6 +70,10 @@ class MusicTracksLoadedState extends MusicState {
     List<JBSong>? likedTracks,
     List<JBSong>? recentTracks,
     List<JBPlaylist>? playlists,
+    String? voiceSearchQuery,
+    int? sleepTimerMinutes,
+    Duration? todayListened,
+    Map<String, int>? playCount,
   }) =>
       MusicTracksLoadedState(
         visibleTracks: visibleTracks ?? this.visibleTracks,
@@ -70,8 +82,13 @@ class MusicTracksLoadedState extends MusicState {
         likedTracks: likedTracks ?? this.likedTracks,
         recentTracks: recentTracks ?? this.recentTracks,
         playlists: playlists ?? this.playlists,
+        voiceSearchQuery: voiceSearchQuery ?? this.voiceSearchQuery,
+        sleepTimerMinutes: sleepTimerMinutes ?? this.sleepTimerMinutes,
+        todayListened: todayListened ?? this.todayListened,
+        playCount: playCount ?? this.playCount,
       );
 
+  // Fix: return List<Object> (non-nullable) — use empty string/0 instead of nullables
   @override
   List<Object> get props => [
         visibleTracks,
@@ -80,6 +97,10 @@ class MusicTracksLoadedState extends MusicState {
         likedTracks,
         recentTracks,
         playlists,
+        voiceSearchQuery,
+        sleepTimerMinutes,
+        todayListened,
+        playCount,
       ];
 }
 
@@ -143,6 +164,13 @@ class RemoveSongFromPlaylistEvent extends MusicEvent {
   RemoveSongFromPlaylistEvent({required this.playlistId, required this.song});
 }
 
+class PlaySmartPlaylistEvent extends MusicEvent {
+  final SmartPlaylistType type;
+  PlaySmartPlaylistEvent(this.type);
+}
+
+enum SmartPlaylistType { workout, study, sleep, travel, shuffle }
+
 // ── Voice events ──────────────────────────────────────────────────────────────
 class StartVoiceListeningEvent extends MusicEvent {}
 
@@ -157,21 +185,29 @@ class VoiceCommandEvent extends MusicEvent {
 // BLOC
 // ─────────────────────────────────────────────────────────────────────────────
 class MusicBloc extends Bloc<MusicEvent, MusicState> {
-  final MyAudioHandler   audioHandler;
-  final GetTracks        getTracksUseCase;
-  final JBDspEngine      dspEngine;
+  final MyAudioHandler audioHandler;
+  final GetTracks getTracksUseCase;
+  final JBDspEngine dspEngine;
   final EarSafetyMonitor safetyMonitor;
-  final VoskVoiceEngine  _voiceEngine;
-  final VaultRepository      vaultRepository;
-  final PlaylistRepository   playlistRepository;
+  final VoskVoiceEngine _voiceEngine;
+  final VaultRepository vaultRepository;
+  final PlaylistRepository playlistRepository;
 
-  late final StreamSubscription<PlayerState>       _playbackSub;
+  late final StreamSubscription<PlayerState> _playbackSub;
   late final StreamSubscription<VoiceCommandIntent> _voiceIntentSub;
 
-  List<JBSong>    _allTracks    = [];
-  List<JBSong>    _likedTracks  = [];
-  List<JBSong>    _recentTracks = [];
-  List<JBPlaylist> _playlists   = [];
+  List<JBSong> _allTracks = [];
+  // ignore: prefer_final_fields — these lists are mutated in place
+  List<JBSong> _likedTracks = [];
+  List<JBSong> _recentTracks = [];
+  List<JBPlaylist> _playlists = [];
+
+  String _voiceSearchQuery = '';
+  int _sleepTimerMinutes = 0;
+  DateTime? _listenStartTime;
+  Map<String, int> _playCount = {};
+
+  Timer? _sleepTimer;
 
   VoskVoiceEngine get voiceEngine => _voiceEngine;
 
@@ -185,7 +221,6 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     required this.playlistRepository,
   })  : _voiceEngine = voiceEngine,
         super(MusicTracksLoadingState()) {
-
     _playbackSub = audioHandler.playerStateStream.listen(
       (state) => add(PlaybackStateChangedEvent(state.playing)),
     );
@@ -210,21 +245,22 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     on<StartVoiceListeningEvent>(_onStartVoice);
     on<StopVoiceListeningEvent>(_onStopVoice);
     on<VoiceCommandEvent>(_onVoiceCommand);
+    on<PlaySmartPlaylistEvent>(_onPlaySmartPlaylist);
   }
 
-  MusicTracksLoadedState get _currentLoaded => state is MusicTracksLoadedState
-      ? state as MusicTracksLoadedState
-      : MusicTracksLoadedState(
-          visibleTracks: _allTracks,
-          currentTrackIndex: 0,
-          isPlaying: false,
-          likedTracks: _likedTracks,
-          recentTracks: _recentTracks,
-          playlists: _playlists,
-        );
+  // ── Helpers ────────────────────────────────────────────────────────────────
 
-  String _voiceSearchQuery = '';
-  int _sleepTimerMinutes = 0;
+  MusicTracksLoadedState get _currentLoaded =>
+      state is MusicTracksLoadedState
+          ? state as MusicTracksLoadedState
+          : MusicTracksLoadedState(
+              visibleTracks: _allTracks,
+              currentTrackIndex: 0,
+              isPlaying: false,
+              likedTracks: _likedTracks,
+              recentTracks: _recentTracks,
+              playlists: _playlists,
+            );
 
   MusicTracksLoadedState _buildState({
     List<JBSong>? visibleTracks,
@@ -233,18 +269,25 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     String? voiceSearchQuery,
     int? sleepTimerMinutes,
   }) {
-    if (voiceSearchQuery != null) _voiceSearchQuery = voiceSearchQuery;
-    if (sleepTimerMinutes != null) _sleepTimerMinutes = sleepTimerMinutes;
-    final cur = _currentLoaded;
-    return cur.copyWith(
-      visibleTracks: visibleTracks ?? cur.visibleTracks,
-      currentTrackIndex: currentTrackIndex ?? cur.currentTrackIndex,
-      isPlaying: isPlaying ?? cur.isPlaying,
-      likedTracks: List.from(_likedTracks),
-      recentTracks: List.from(_recentTracks),
-      playlists: List.from(_playlists),
+    final cur = state is MusicTracksLoadedState
+        ? state as MusicTracksLoadedState
+        : null;
+    return MusicTracksLoadedState(
+      visibleTracks: visibleTracks ?? cur?.visibleTracks ?? _allTracks,
+      currentTrackIndex:
+          currentTrackIndex ?? cur?.currentTrackIndex ?? 0,
+      isPlaying: isPlaying ?? cur?.isPlaying ?? false,
+      likedTracks: _likedTracks,
+      recentTracks: _recentTracks,
+      playlists: _playlists,
+      voiceSearchQuery: voiceSearchQuery ?? _voiceSearchQuery,
+      sleepTimerMinutes: sleepTimerMinutes ?? _sleepTimerMinutes,
+      todayListened: cur?.todayListened ?? Duration.zero,
+      playCount: _playCount,
     );
   }
+
+  // ── Handlers ───────────────────────────────────────────────────────────────
 
   Future<void> _onLoadTracks(
       LoadAudioTracksEvent event, Emitter<MusicState> emit) async {
@@ -280,7 +323,16 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     _recentTracks
       ..removeWhere((s) => s.path == song.path)
       ..insert(0, song);
-    if (_recentTracks.length > 20) _recentTracks = _recentTracks.sublist(0, 20);
+    if (_recentTracks.length > 20) {
+      _recentTracks = _recentTracks.sublist(0, 20);
+    }
+
+    final songId = event.tracks[event.index].id;
+    final updated = Map<String, int>.from(_playCount);
+    updated[songId] = (updated[songId] ?? 0) + 1;
+    _playCount = updated;
+
+    _listenStartTime ??= DateTime.now();
 
     emit(_buildState(
       visibleTracks: event.tracks,
@@ -289,11 +341,11 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     ));
   }
 
+  // Fix: this was registered but missing — now properly defined
   void _onPlaybackStateChanged(
       PlaybackStateChangedEvent event, Emitter<MusicState> emit) {
-    if (state is MusicTracksLoadedState) {
-      emit(_buildState(isPlaying: event.isPlaying));
-    }
+    if (state is! MusicTracksLoadedState) return;
+    emit(_buildState(isPlaying: event.isPlaying));
   }
 
   void _onSearch(SearchTracksEvent event, Emitter<MusicState> emit) {
@@ -362,13 +414,59 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     emit(_buildState());
   }
 
+  // Fix: removed duplicate — single definition only
+  void _onPlaySmartPlaylist(
+      PlaySmartPlaylistEvent event, Emitter<MusicState> emit) {
+    if (state is! MusicTracksLoadedState) return;
+
+    List<JBSong> selection;
+
+    // Fix: JBSong.duration is a Duration — compare with Duration constants,
+    // not raw int milliseconds.
+    switch (event.type) {
+      case SmartPlaylistType.shuffle:
+        selection = List.of(_allTracks)..shuffle();
+        break;
+
+      case SmartPlaylistType.workout:
+        // Short tracks < 4 minutes
+        selection = _allTracks
+            .where((s) =>
+                s.duration != null &&
+                s.duration! < const Duration(minutes: 4))
+            .toList();
+        if (selection.isEmpty) selection = _allTracks;
+        break;
+
+      case SmartPlaylistType.study:
+        // Longer tracks >= 4 minutes
+        selection = _allTracks
+            .where((s) =>
+                s.duration != null &&
+                s.duration! >= const Duration(minutes: 4))
+            .toList();
+        if (selection.isEmpty) selection = _allTracks;
+        break;
+
+      case SmartPlaylistType.sleep:
+        selection = List.of(_allTracks)..shuffle();
+        break;
+
+      case SmartPlaylistType.travel:
+        selection = List.of(_allTracks)..shuffle();
+        break;
+    }
+
+    if (selection.isEmpty) return;
+    add(PlayTrackEvent(index: 0, tracks: selection));
+  }
+
   Future<void> _onStartVoice(
       StartVoiceListeningEvent event, Emitter<MusicState> emit) async {
     try {
       if (!_voiceEngine.isReady) {
         await _voiceEngine.initializeVoicePipeline();
       }
-      // Always call startListening after init or if already ready
       await _voiceEngine.startListening();
     } catch (e) {
       debugPrint('❌ Voice start error: $e');
@@ -380,12 +478,10 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     await _voiceEngine.stopListening();
   }
 
-  Timer? _sleepTimer;
-
   Future<void> _onVoiceCommand(
       VoiceCommandEvent event, Emitter<MusicState> emit) async {
     final intent = event.intent;
-    debugPrint('🎤 EXECUTING: \${intent.action} | payload: "\${intent.payload}"');
+    debugPrint('🎤 ACTION: ${intent.action}, PAYLOAD: ${intent.payload}');
 
     switch (intent.action) {
       // ── Playback ──────────────────────────────────────────────────────────
@@ -396,8 +492,9 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
         await audioHandler.pause();
         break;
       case JbVoiceAction.togglePlayPause:
-        final isPlaying = audioHandler.playing;
-        isPlaying ? await audioHandler.pause() : await audioHandler.play();
+        audioHandler.playing
+            ? await audioHandler.pause()
+            : await audioHandler.play();
         break;
       case JbVoiceAction.next:
         await audioHandler.skipToNext();
@@ -424,7 +521,7 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
       case JbVoiceAction.searchSong:
         final query = intent.payload ?? '';
         if (query.isNotEmpty) {
-          debugPrint('🔍 Voice search: "\$query"');
+          debugPrint('🔍 Voice search: $query');
           _voiceSearchQuery = query;
           emit(_buildState(voiceSearchQuery: query));
         }
@@ -434,18 +531,18 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
       case JbVoiceAction.playSong:
         final query = (intent.payload ?? '').toLowerCase();
         if (query.isNotEmpty) {
-          debugPrint('🎵 Voice play song: "\$query"');
+          debugPrint('🎵 Voice play song: $query');
           final match = _allTracks.indexWhere((t) =>
               t.title.toLowerCase().contains(query) ||
               t.artist.toLowerCase().contains(query));
           if (match != -1) {
             add(PlayTrackEvent(index: match, tracks: _allTracks));
-            debugPrint('✅ Playing: \${_allTracks[match].title}');
+            debugPrint('✅ Playing: ${_allTracks[match].title}');
           } else {
-            // Fall back to search if no direct match
             _voiceSearchQuery = query;
             emit(_buildState(voiceSearchQuery: query));
-            debugPrint('⚠️ No exact match — showing search results for "\$query"');
+            debugPrint(
+                '⚠️ No exact match — showing search results for "$query"');
           }
         }
         break;
@@ -454,35 +551,44 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
       case JbVoiceAction.playPlaylist:
         final name = (intent.payload ?? '').toLowerCase();
         if (name.isNotEmpty) {
-          final playlist = _playlists.firstWhere(
-            (p) => p.name.toLowerCase().contains(name),
-            orElse: () => _playlists.isNotEmpty ? _playlists.first : throw Exception('no playlists'),
-          );
-          debugPrint('📋 Playing playlist: \${playlist.name}');
-          if (playlist.songs.isNotEmpty) {
-            add(PlayTrackEvent(index: 0, tracks: playlist.songs));
+          final matches = _playlists
+              .where((p) => p.name.toLowerCase().contains(name));
+          if (matches.isEmpty) {
+            debugPrint('⚠️ No matching playlist found for "$name"');
+            return;
+          }
+          final selected = matches.first;
+          debugPrint('📋 Playing playlist: ${selected.name}');
+          if (selected.songs.isNotEmpty) {
+            add(PlayTrackEvent(index: 0, tracks: selected.songs));
           }
         }
         break;
 
       // ── Sleep timer ───────────────────────────────────────────────────────
       case JbVoiceAction.setSleepTimer:
-        final mins = int.tryParse(intent.payload ?? '30') ?? 30;
-        _sleepTimer?.cancel();
-        _sleepTimer = Timer(Duration(minutes: mins), () async {
-          debugPrint('⏰ Sleep timer fired — pausing');
-          await audioHandler.pause();
-        });
-        debugPrint('⏰ Sleep timer set for \$mins minutes');
-        emit(_buildState(sleepTimerMinutes: mins));
-        break;
+        {
+          final int mins = int.tryParse(intent.payload ?? '30') ?? 30;
+          _sleepTimer?.cancel();
+          _sleepTimer = Timer(Duration(minutes: mins), () async {
+            debugPrint('⏰ Sleep timer fired — pausing');
+            await audioHandler.pause();
+          });
+          _sleepTimerMinutes = mins;
+          emit(_buildState(sleepTimerMinutes: mins));
+          debugPrint('⏰ Sleep timer set for $mins minutes');
+          break;
+        }
 
       case JbVoiceAction.cancelSleepTimer:
-        _sleepTimer?.cancel();
-        _sleepTimer = null;
-        debugPrint('⏰ Sleep timer cancelled');
-        emit(_buildState(sleepTimerMinutes: 0));
-        break;
+        {
+          _sleepTimer?.cancel();
+          _sleepTimer = null;
+          _sleepTimerMinutes = 0;
+          emit(_buildState(sleepTimerMinutes: 0));
+          debugPrint('⏰ Sleep timer cancelled');
+          break;
+        }
 
       // ── Safety ────────────────────────────────────────────────────────────
       case JbVoiceAction.checkSafety:
@@ -490,7 +596,7 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
         break;
 
       case JbVoiceAction.unknown:
-        debugPrint('❓ Unknown voice command');
+        debugPrint('❓ Unknown voice command: ${intent.action}');
         break;
     }
   }
@@ -499,6 +605,7 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
   Future<void> close() {
     _playbackSub.cancel();
     _voiceIntentSub.cancel();
+    _sleepTimer?.cancel();
     return super.close();
   }
 }

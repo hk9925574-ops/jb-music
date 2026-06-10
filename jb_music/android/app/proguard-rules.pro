@@ -18,8 +18,35 @@
 # ----------------------------------------------------------------------------
 -keep class com.ryan.just_audio_background.** { *; }
 -keep class com.ryanheise.audioservice.** { *; }
+-keep class com.ryanheise.just_audio.** { *; }
 -dontwarn com.ryan.just_audio_background.**
 -dontwarn com.ryanheise.audioservice.**
+
+# ----------------------------------------------------------------------------
+# Flutter Secure Storage
+# ----------------------------------------------------------------------------
+-keep class com.it_nomads.fluttersecurestorage.** { *; }
+
+# ----------------------------------------------------------------------------
+# On Audio Query
+# ----------------------------------------------------------------------------
+-keep class com.lucasjosino.on_audio_query.** { *; }
+
+# ----------------------------------------------------------------------------
+# Speech to Text
+# ----------------------------------------------------------------------------
+-keep class com.csdcorp.speech_to_text.** { *; }
+
+# ----------------------------------------------------------------------------
+# JB Music model classes
+# ----------------------------------------------------------------------------
+-keep class com.jbmusic.** { *; }
+
+# ----------------------------------------------------------------------------
+# Gson (if used indirectly)
+# ----------------------------------------------------------------------------
+-keepattributes Signature
+-keepattributes *Annotation*
 
 # ----------------------------------------------------------------------------
 # Native Method Preservation (Critical for JNI plugins)
@@ -31,8 +58,6 @@
 
 # ----------------------------------------------------------------------------
 # General Keep Rules for Data Models (If using JSON serialization)
-# If you use 'json_serializable' or 'freezed', keep your data models.
-# Replace 'com.example.jb_music.models' with your actual package name.
 # ----------------------------------------------------------------------------
 # -keep class com.example.jb_music.models.** { *; }
 

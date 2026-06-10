@@ -5,9 +5,9 @@ plugins {
 }
 
 android {
-    namespace = "com.example.jb_music"  // ✅ matches com.example.jb_music.MainActivity
-    compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    namespace = "com.jbmusic.app"
+    compileSdk = 36
+    ndkVersion = "30.0.14904198"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -15,23 +15,32 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.jb_music"  // ✅
+        applicationId = "com.jbmusic.app"
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        targetSdk = 36
+        versionCode = 1
+        versionName = "3.1.0"
         multiDexEnabled = true
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = file("jbmusic.jks")
+            storePassword = "your_store_password"
+            keyAlias = "jbmusic"
+            keyPassword = "your_key_password"
+        }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 }

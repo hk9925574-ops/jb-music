@@ -18,6 +18,7 @@ class JBSong {
     required this.durationMs,
     required this.format,
   });
+  Duration get duration => Duration(milliseconds: durationMs);
 
   factory JBSong.fromAudioQuery(SongModel model) {
     return JBSong(

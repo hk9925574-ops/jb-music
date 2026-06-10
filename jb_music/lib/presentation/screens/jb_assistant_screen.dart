@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:jb_music/application/bloc/music_bloc.dart';
 import 'package:jb_music/core/theme/rg_tokens.dart';
+import 'package:jb_music/domain/entities/voice_intent.dart';
 import 'package:jb_music/presentation/animations/orb_painter.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -33,21 +34,57 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
   String           _liveTranscript = '';
   final List<_HistoryItem> _history = [];
   StreamSubscription<String>? _transcriptSub;
+  StreamSubscription<VoiceCommandIntent>? _intentSub;
 
-  // ── TTS response map ──────────────────────────────────────────────────────
-  static const Map<String, String> _responses = {
-    'play':      'Playing music',
-    'pause':     'Music paused',
-    'next':      'Next song',
-    'previous':  'Previous song',
-    'shuffle':   'Shuffle on',
-    'repeat':    'Repeat on',
-    'volume_up': 'Volume increased',
-    'volume_down': 'Volume decreased',
-    'library':   'Opening library',
-    'favorites': 'Playing your favourites',
-    'search':    'Searching',
-  };
+  // ── Human-readable responses keyed by JbVoiceAction.name ─────────────────
+  // FIX: keys now match JbVoiceAction enum names exactly
+  static String _responseFor(JbVoiceAction action, {String? payload}) {
+    switch (action) {
+      case JbVoiceAction.play:             return 'Playing music';
+      case JbVoiceAction.pause:            return 'Music paused';
+      case JbVoiceAction.togglePlayPause:  return 'Toggling playback';
+      case JbVoiceAction.next:             return 'Next song';
+      case JbVoiceAction.previous:         return 'Previous song';
+      case JbVoiceAction.shuffle:          return 'Shuffle on';
+      case JbVoiceAction.repeat:           return 'Repeat on';
+      case JbVoiceAction.volumeUp:         return 'Volume up';
+      case JbVoiceAction.volumeDown:       return 'Volume down';
+      case JbVoiceAction.searchSong:
+        return payload != null && payload.isNotEmpty
+            ? 'Searching for $payload'
+            : 'Searching';
+      case JbVoiceAction.playSong:
+        return payload != null && payload.isNotEmpty
+            ? 'Playing $payload'
+            : 'Playing song';
+      case JbVoiceAction.playPlaylist:
+        return payload != null && payload.isNotEmpty
+            ? 'Playing $payload playlist'
+            : 'Playing playlist';
+      case JbVoiceAction.setSleepTimer:
+        return payload != null && payload.isNotEmpty
+            ? 'Sleep timer set for $payload minutes'
+            : 'Sleep timer set';
+      case JbVoiceAction.cancelSleepTimer: return 'Sleep timer cancelled';
+      case JbVoiceAction.checkSafety:      return 'Opening ear safety';
+      case JbVoiceAction.unknown:          return 'Sorry, I didn\'t understand that';
+    }
+  }
+
+  // ── Human-readable label for history (what the user said, prettified) ─────
+  static String _historyLabel(VoiceCommandIntent intent) {
+    final p = intent.payload;
+    switch (intent.action) {
+      case JbVoiceAction.playSong:      return p != null ? 'Play "$p"' : 'Play song';
+      case JbVoiceAction.searchSong:    return p != null ? 'Search "$p"' : 'Search';
+      case JbVoiceAction.playPlaylist:  return p != null ? 'Playlist: $p' : 'Play playlist';
+      case JbVoiceAction.setSleepTimer: return p != null ? 'Timer: $p min' : 'Set timer';
+      default:                          return _capitalize(intent.action.name);
+    }
+  }
+
+  static String _capitalize(String s) =>
+      s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 
   @override
   void initState() {
@@ -71,29 +108,36 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
       if (mounted) setState(() => _orbState = OrbState.speaking);
     });
     _tts.setCompletionHandler(() {
-      if (mounted) setState(() => _orbState = _micActive ? OrbState.listening : OrbState.idle);
+      if (mounted) {
+        setState(() => _orbState = _micActive ? OrbState.listening : OrbState.idle);
+      }
     });
   }
 
   void _bindVoiceStream() {
     final voiceEngine = context.read<MusicBloc>().voiceEngine;
+
+    // Live transcript display
     _transcriptSub = voiceEngine.resultStream.listen((text) {
       if (!mounted) return;
       setState(() => _liveTranscript = text);
     });
 
-    // Also listen for intents to update history + speak
-    voiceEngine.commandIntentStream.listen((intent) {
+    // Intent → history + TTS
+    _intentSub = voiceEngine.commandIntentStream.listen((intent) {
       if (!mounted) return;
-      final response = _responses[intent.action.name] ?? 'Got it';
+
+      final response = _responseFor(intent.action, payload: intent.payload);
+      final label    = _historyLabel(intent);
+
       setState(() {
         _liveTranscript = '';
         _history.insert(
           0,
           _HistoryItem(
-            command: intent.payload ?? intent.action.name,
+            command:  label,
             response: response,
-            time: TimeOfDay.now(),
+            time:     TimeOfDay.now(),
           ),
         );
         if (_history.length > 20) _history.removeLast();
@@ -147,6 +191,7 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
   void dispose() {
     _orbCtrl.dispose();
     _transcriptSub?.cancel();
+    _intentSub?.cancel();
     _tts.stop();
     super.dispose();
   }
@@ -252,8 +297,9 @@ class _CommandChips extends StatelessWidget {
     'Pause',
     'Shuffle',
     'Play favourites',
-    'Sleep timer',
+    'Sleep timer 30 min',
     'Volume up',
+    'Repeat',
   ];
 
   @override
@@ -299,8 +345,8 @@ class _Chip extends StatelessWidget {
 // HISTORY PANEL
 // ─────────────────────────────────────────────────────────────────────────────
 class _HistoryItem {
-  final String   command;
-  final String   response;
+  final String    command;
+  final String    response;
   final TimeOfDay time;
   const _HistoryItem({
     required this.command,
@@ -316,7 +362,7 @@ class _HistoryPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 160,
+      height: 180,
       margin: const EdgeInsets.symmetric(horizontal: RG.spaceMD),
       decoration: BoxDecoration(
         color: RG.surfaceHigh,
@@ -350,20 +396,34 @@ class _HistoryPanel extends StatelessWidget {
                     vertical: 6,
                   ),
                   child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Icon(Icons.mic, color: RG.gold, size: 14),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Text(
-                          item.command,
-                          style: const TextStyle(
-                            color: RG.textPrimary,
-                            fontSize: 12,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              item.command,
+                              style: const TextStyle(
+                                color: RG.textPrimary,
+                                fontSize: 12,
+                              ),
+                            ),
+                            Text(
+                              item.response,
+                              style: const TextStyle(
+                                color: RG.textSecondary,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       Text(
-                        '${item.time.hour.toString().padLeft(2, '0')}:${item.time.minute.toString().padLeft(2, '0')}',
+                        '${item.time.hour.toString().padLeft(2, '0')}:'
+                        '${item.time.minute.toString().padLeft(2, '0')}',
                         style: RG.labelStyle,
                       ),
                     ],

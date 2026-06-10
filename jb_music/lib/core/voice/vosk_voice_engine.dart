@@ -98,8 +98,7 @@ class VoskVoiceEngine {
         onResult: (result) {
           if (!result.finalResult) return;
 
-          final text =
-              result.recognizedWords.trim().toLowerCase();
+          final text = result.recognizedWords.trim().toLowerCase();
 
           if (text.isEmpty) return;
 
@@ -113,13 +112,16 @@ class VoskVoiceEngine {
             debugPrint(
                 '✅ Intent: ${intent.action} | payload: ${intent.payload}');
             _intentCtrl.add(intent);
+          } else {
+            debugPrint('❓ No intent matched for: "$text"');
           }
         },
         listenFor: const Duration(seconds: 30),
         pauseFor: const Duration(seconds: 3),
         partialResults: false,
         cancelOnError: false,
-        listenMode: stt.ListenMode.dictation,
+        // FIX: use search mode — optimised for short commands, not long dictation
+        listenMode: stt.ListenMode.search,
       );
     } catch (e) {
       debugPrint('❌ Session error: $e');
@@ -162,52 +164,81 @@ class VoskVoiceEngine {
   // ─────────────────────────────────────────────────────────────
   // INTENT PARSER
   // ─────────────────────────────────────────────────────────────
-  VoiceCommandIntent _parseIntent(String text) {
-    final cleaned = text
-        .replaceAll(RegExp(r'\bhey\s+jb\b', caseSensitive: false), '')
-        .replaceAll(RegExp(r'\bjb\b', caseSensitive: false), '')
+  VoiceCommandIntent _parseIntent(String raw) {
+    // ── STEP 1: strip wake words + punctuation FIRST ──────────────────────
+    // Remove "hey jb", "ok jb", "hey jb," (with optional comma/punctuation)
+    // Also strips standalone "jb" prefix like "jb play something"
+    final cleaned = raw
+        .replaceAll(RegExp(r'\b(hey|ok|okay)\s+jb\b[,.]?\s*', caseSensitive: false), '')
+        .replaceAll(RegExp(r'^jb\b[,.]?\s*', caseSensitive: false), '')
+        .replaceAll(RegExp(r'[,.]'), ' ')   // remove commas/dots
+        .replaceAll(RegExp(r'\s+'), ' ')     // collapse spaces
         .trim();
 
-    // ── SLEEP TIMER ──
+    debugPrint('🔍 Cleaned: "$cleaned"');
+
+    // ── SLEEP TIMER ──────────────────────────────────────────────────────
     final timerRegex = RegExp(
-      r'(set.*(timer|sleep)|sleep.*(in|after|for)|stop.*(in|after)|timer)\s+(\d+)\s*(min|minute|minutes|m\b)',
+      r'(set.*(timer|sleep)|sleep.*(in|after|for)|stop.*(in|after)|timer).*?(\d+)\s*(min|minute|minutes|m\b)',
       caseSensitive: false,
     );
 
     final timerMatch = timerRegex.firstMatch(cleaned);
-
     if (timerMatch != null) {
-      final numMatch =
-          RegExp(r'(\d+)').firstMatch(cleaned.substring(timerMatch.start));
-
-      final mins = numMatch?.group(1) ?? '30';
-
+      final mins = timerMatch.group(5) != null
+          ? timerMatch.group(4) ?? '30'
+          : '30';
+      // Re-extract the number more reliably
+      final numMatch = RegExp(r'(\d+)').firstMatch(cleaned);
+      final finalMins = numMatch?.group(1) ?? '30';
       return VoiceCommandIntent(
         action: JbVoiceAction.setSleepTimer,
         rawUtterance: cleaned,
         matchedPhrase: timerMatch.group(0),
         confidenceScore: 1.0,
-        payload: mins,
+        payload: finalMins,
       );
     }
 
-    if (_contains(cleaned, ['cancel timer', 'stop timer', 'no timer'])) {
+    if (_contains(cleaned, ['cancel timer', 'stop timer', 'no timer', 'turn off timer'])) {
       return _intent(JbVoiceAction.cancelSleepTimer, cleaned, cleaned);
     }
 
-    // ── PLAY SONG ──
+    // ── SHUFFLE ──────────────────────────────────────────────────────────
+    if (_contains(cleaned, ['shuffle'])) {
+      return _intent(JbVoiceAction.shuffle, cleaned, 'shuffle');
+    }
+
+    // ── REPEAT ───────────────────────────────────────────────────────────
+    if (_contains(cleaned, ['repeat', 'loop'])) {
+      return _intent(JbVoiceAction.repeat, cleaned, 'repeat');
+    }
+
+    // ── VOLUME ───────────────────────────────────────────────────────────
+    if (_contains(cleaned, ['volume up', 'turn up', 'louder', 'increase volume'])) {
+      return _intent(JbVoiceAction.volumeUp, cleaned, 'volume up');
+    }
+    if (_contains(cleaned, ['volume down', 'turn down', 'quieter', 'lower volume', 'decrease volume'])) {
+      return _intent(JbVoiceAction.volumeDown, cleaned, 'volume down');
+    }
+
+    // ── EAR SAFETY ───────────────────────────────────────────────────────
+    if (_contains(cleaned, ['ear safety', 'check safety', 'hearing', 'volume safe'])) {
+      return _intent(JbVoiceAction.checkSafety, cleaned, 'check safety');
+    }
+
+    // ── PLAY SONG (must come before generic "play") ───────────────────────
+    // Matches: "play [song/track] <name>", "play me <name>", "i want to hear <name>", "put on <name>"
     final playSongRegex = RegExp(
-      r'(?:play(?:\s+(?:the\s+)?(?:song|track|music))?)\s+(.+)|'
-      r'(?:i want to (?:hear|listen to)|put on|play me)\s+(.+)',
+      r'^(?:play(?:\s+(?:the\s+)?(?:song|track|music))?\s+(.+)|'
+      r'(?:play\s+me|i\s+want\s+to\s+(?:hear|listen\s+to)|put\s+on)\s+(.+))$',
       caseSensitive: false,
     );
 
     final playMatch = playSongRegex.firstMatch(cleaned);
-
     if (playMatch != null) {
       final query =
           (playMatch.group(1) ?? playMatch.group(2) ?? '').trim();
-
       if (query.isNotEmpty && !_isStopword(query)) {
         return VoiceCommandIntent(
           action: JbVoiceAction.playSong,
@@ -219,17 +250,15 @@ class VoskVoiceEngine {
       }
     }
 
-    // ── SEARCH ──
+    // ── SEARCH ───────────────────────────────────────────────────────────
     final searchRegex = RegExp(
-      r'(?:search(?:\s+for)?|find|look for|show me)\s+(.+)',
+      r'^(?:search(?:\s+for)?|find|look\s+for|show\s+me)\s+(.+)$',
       caseSensitive: false,
     );
 
     final searchMatch = searchRegex.firstMatch(cleaned);
-
     if (searchMatch != null) {
       final query = (searchMatch.group(1) ?? '').trim();
-
       if (query.isNotEmpty && !_isStopword(query)) {
         return VoiceCommandIntent(
           action: JbVoiceAction.searchSong,
@@ -241,43 +270,45 @@ class VoskVoiceEngine {
       }
     }
 
-    // ── PLAYLIST ──
-    final playlistRegex = RegExp(
-      r'(?:play(?:list)?|open|switch to|go to)\s+(?:playlist\s+)?(.+)',
-      caseSensitive: false,
-    );
-
-    final playlistMatch = playlistRegex.firstMatch(cleaned);
-
-    if (playlistMatch != null && cleaned.contains('playlist')) {
-      final name = (playlistMatch.group(1) ?? '').trim();
-
-      if (name.isNotEmpty) {
-        return VoiceCommandIntent(
-          action: JbVoiceAction.playPlaylist,
-          rawUtterance: cleaned,
-          matchedPhrase: playlistMatch.group(0),
-          confidenceScore: 0.9,
-          payload: name,
-        );
+    // ── PLAYLIST ─────────────────────────────────────────────────────────
+    if (cleaned.contains('playlist')) {
+      final playlistRegex = RegExp(
+        r'(?:play(?:list)?|open|switch\s+to|go\s+to)\s+(?:playlist\s+)?(.+)',
+        caseSensitive: false,
+      );
+      final playlistMatch = playlistRegex.firstMatch(cleaned);
+      if (playlistMatch != null) {
+        // Remove trailing "playlist" word if user said "play my chill playlist"
+        final name = (playlistMatch.group(1) ?? '')
+            .replaceAll(RegExp(r'\bplaylist\b', caseSensitive: false), '')
+            .trim();
+        if (name.isNotEmpty) {
+          return VoiceCommandIntent(
+            action: JbVoiceAction.playPlaylist,
+            rawUtterance: cleaned,
+            matchedPhrase: playlistMatch.group(0),
+            confidenceScore: 0.9,
+            payload: name,
+          );
+        }
       }
     }
 
-    // ── BASIC CONTROLS ──
-    if (_contains(cleaned, ['play', 'start', 'resume'])) {
-      return _intent(JbVoiceAction.play, cleaned, 'play');
-    }
-
-    if (_contains(cleaned, ['pause', 'stop'])) {
+    // ── BASIC CONTROLS (last resort — after all payload-bearing checks) ──
+    if (_contains(cleaned, ['pause', 'stop music', 'stop playing'])) {
       return _intent(JbVoiceAction.pause, cleaned, 'pause');
     }
 
-    if (_contains(cleaned, ['next', 'skip'])) {
+    if (_contains(cleaned, ['next', 'skip', 'next song', 'next track'])) {
       return _intent(JbVoiceAction.next, cleaned, 'next');
     }
 
-    if (_contains(cleaned, ['previous', 'back'])) {
+    if (_contains(cleaned, ['previous', 'back', 'last song', 'go back'])) {
       return _intent(JbVoiceAction.previous, cleaned, 'previous');
+    }
+
+    if (_contains(cleaned, ['play', 'start', 'resume', 'continue'])) {
+      return _intent(JbVoiceAction.play, cleaned, 'play');
     }
 
     return VoiceCommandIntent(
@@ -291,8 +322,13 @@ class VoskVoiceEngine {
   bool _contains(String text, List<String> phrases) =>
       phrases.any((p) => text.contains(p));
 
-  bool _isStopword(String q) =>
-      ['music', 'something', 'a song', 'anything'].contains(q.trim());
+  bool _isStopword(String q) {
+    const stopwords = {
+      'music', 'something', 'a song', 'anything', 'song', 'track',
+      'me', 'it', 'this', 'that',
+    };
+    return stopwords.contains(q.trim().toLowerCase());
+  }
 
   VoiceCommandIntent _intent(
     JbVoiceAction action,

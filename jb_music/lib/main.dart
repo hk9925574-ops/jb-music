@@ -1,3 +1,6 @@
+import 'package:jb_music/core/ai/feature_registry.dart';
+// inside main():
+
 // lib/main.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -30,13 +33,16 @@ final _getTracksUseCase  = GetTracks(repository: _trackSource);
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // AI Feature Registry
+  await JBFeatureRegistry.instance.init();
+
   FlutterError.onError = (details) {
     debugPrint('❌ FLUTTER ERROR: ${details.exception}');
     debugPrint(details.stack.toString());
   };
 
   await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp
+    DeviceOrientation.portraitUp,
   ]);
 
   SystemChrome.setSystemUIOverlayStyle(
@@ -54,7 +60,6 @@ void main() async {
     debugPrint(stackTrace.toString());
   });
 }
-
 class JBMusicApp extends StatelessWidget {
   const JBMusicApp({super.key});
 

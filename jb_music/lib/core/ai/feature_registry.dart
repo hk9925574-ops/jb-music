@@ -4,7 +4,7 @@
 // Wire this into your existing service_locator.dart or main.dart.
 //
 // USAGE in main.dart or service_locator.dart:
-//   await JBFeatureRegistry.instance.init();
+//   await JFeatureRegistry.instance.init();
 //
 // Then access anywhere:
 //   JBFeatureRegistry.instance.moodEngine

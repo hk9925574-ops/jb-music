@@ -1,6 +1,3 @@
-import 'package:jb_music/core/ai/feature_registry.dart';
-// inside main():
-
 // lib/main.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -20,21 +17,26 @@ import 'package:jb_music/data/repositories/local_playlist_repository.dart';
 import 'package:jb_music/data/datasources/local_track_query_source.dart';
 import 'package:jb_music/domain/usecases/get_tracks.dart';
 import 'package:jb_music/application/bloc/music_bloc.dart';
+import 'package:jb_music/core/ai/feature_registry.dart';
 
-final audioHandler       = MyAudioHandler();
-final _dspEngine         = JBDspEngine();
-final _safetyMonitor     = EarSafetyMonitor();
-final _voiceEngine       = VoskVoiceEngine();
-final _vaultRepository   = SecureVaultRepository();
-final _playlistRepository= LocalPlaylistRepository();
-final _trackSource       = LocalTrackQuerySource();
-final _getTracksUseCase  = GetTracks(repository: _trackSource);
+const bool isTestMode = bool.fromEnvironment('TEST_MODE', defaultValue: false);
+
+final audioHandler        = MyAudioHandler();
+final _dspEngine          = JBDspEngine();
+final _safetyMonitor      = EarSafetyMonitor();
+final _voiceEngine        = VoskVoiceEngine();
+final _vaultRepository    = SecureVaultRepository();
+final _playlistRepository = LocalPlaylistRepository();
+final _trackSource        = LocalTrackQuerySource();
+final _getTracksUseCase   = GetTracks(repository: _trackSource);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // AI Feature Registry
-  await JBFeatureRegistry.instance.init();
+  if (!isTestMode) {
+    await JBFeatureRegistry.instance.init();
+  }
 
   FlutterError.onError = (details) {
     debugPrint('❌ FLUTTER ERROR: ${details.exception}');
@@ -60,6 +62,7 @@ void main() async {
     debugPrint(stackTrace.toString());
   });
 }
+
 class JBMusicApp extends StatelessWidget {
   const JBMusicApp({super.key});
 
@@ -72,12 +75,12 @@ class JBMusicApp extends StatelessWidget {
       ],
       child: BlocProvider<MusicBloc>(
         create: (_) => MusicBloc(
-          audioHandler:      audioHandler,
-          getTracksUseCase:  _getTracksUseCase,
-          dspEngine:         _dspEngine,
-          safetyMonitor:     _safetyMonitor,
-          voiceEngine:       _voiceEngine,
-          vaultRepository:   _vaultRepository,
+          audioHandler:       audioHandler,
+          getTracksUseCase:   _getTracksUseCase,
+          dspEngine:          _dspEngine,
+          safetyMonitor:      _safetyMonitor,
+          voiceEngine:        _voiceEngine,
+          vaultRepository:    _vaultRepository,
           playlistRepository: _playlistRepository,
         )..add(LoadAudioTracksEvent()),
         child: MaterialApp(
@@ -106,7 +109,9 @@ class JBMusicApp extends StatelessWidget {
               ),
             );
             return MediaQuery(
-              data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(1.0)),
+              data: MediaQuery.of(context).copyWith(
+                textScaler: TextScaler.linear(1.0),
+              ),
               child: child ?? const SizedBox(),
             );
           },
@@ -122,6 +127,7 @@ class JBMusicApp extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 class JBSplashScreen extends StatefulWidget {
   const JBSplashScreen({super.key});
+
   @override
   State<JBSplashScreen> createState() => _JBSplashScreenState();
 }
@@ -130,20 +136,23 @@ class _JBSplashScreenState extends State<JBSplashScreen> {
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(milliseconds: 1800), () {
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          PageRouteBuilder(
-            pageBuilder: (_, __, ___) => const PlatformPermissionGate(),
-            transitionsBuilder: (_, anim, __, child) => FadeTransition(
-              opacity: anim,
-              child: child,
+    Future.delayed(
+      Duration(milliseconds: isTestMode ? 50 : 1800),
+      () {                                          // ← closure was missing
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            PageRouteBuilder(
+              pageBuilder: (_, __, ___) => const PlatformPermissionGate(),
+              transitionsBuilder: (_, anim, __, child) => FadeTransition(
+                opacity: anim,
+                child: child,
+              ),
+              transitionDuration: const Duration(milliseconds: 600),
             ),
-            transitionDuration: const Duration(milliseconds: 600),
-          ),
-        );
-      }
-    });
+          );
+        }
+      },
+    );
   }
 
   @override
@@ -154,7 +163,6 @@ class _JBSplashScreenState extends State<JBSplashScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Logo mark
             Container(
               width: 96,
               height: 96,
@@ -197,18 +205,19 @@ class _JBSplashScreenState extends State<JBSplashScreen> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PERMISSION GATE (unchanged logic, new styling)
+// PERMISSION GATE
 // ─────────────────────────────────────────────────────────────────────────────
 class PlatformPermissionGate extends StatefulWidget {
   const PlatformPermissionGate({super.key});
+
   @override
   State<PlatformPermissionGate> createState() => _PlatformPermissionGateState();
 }
 
 class _PlatformPermissionGateState extends State<PlatformPermissionGate> {
-  bool   _granted          = false;
-  bool   _permanentlyDenied= false;
-  String _status           = 'Requesting permissions…';
+  bool   _granted           = false;
+  bool   _permanentlyDenied = false;
+  String _status            = 'Requesting permissions…';
 
   @override
   void initState() {

@@ -200,7 +200,7 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
   // ignore: prefer_final_fields — these lists are mutated in place
   List<JBSong> _likedTracks = [];
   List<JBSong> _recentTracks = [];
-  List<JBPlaylist> _playlists = [];
+  final List<JBPlaylist> _playlists = [];
 
   String _voiceSearchQuery = '';
   int _sleepTimerMinutes = 0;
@@ -432,8 +432,7 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
         // Short tracks < 4 minutes
         selection = _allTracks
             .where((s) =>
-                s.duration != null &&
-                s.duration! < const Duration(minutes: 4))
+                s.duration < const Duration(minutes: 4))
             .toList();
         if (selection.isEmpty) selection = _allTracks;
         break;
@@ -442,8 +441,7 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
         // Longer tracks >= 4 minutes
         selection = _allTracks
             .where((s) =>
-                s.duration != null &&
-                s.duration! >= const Duration(minutes: 4))
+                s.duration >= const Duration(minutes: 4))
             .toList();
         if (selection.isEmpty) selection = _allTracks;
         break;

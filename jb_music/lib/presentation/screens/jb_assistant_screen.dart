@@ -8,6 +8,7 @@ import 'package:jb_music/application/bloc/music_bloc.dart';
 import 'package:jb_music/core/theme/rg_tokens.dart';
 import 'package:jb_music/domain/entities/voice_intent.dart';
 import 'package:jb_music/presentation/animations/orb_painter.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SCREEN
@@ -22,22 +23,16 @@ class JBAssistantScreen extends StatefulWidget {
 class _JBAssistantScreenState extends State<JBAssistantScreen>
     with TickerProviderStateMixin {
 
-  // ── Animation ─────────────────────────────────────────────────────────────
   late final AnimationController _orbCtrl;
-
-  // ── TTS ───────────────────────────────────────────────────────────────────
   final FlutterTts _tts = FlutterTts();
 
-  // ── State ─────────────────────────────────────────────────────────────────
-  OrbState         _orbState       = OrbState.idle;
-  bool             _micActive      = false;
-  String           _liveTranscript = '';
+  OrbState _orbState = OrbState.idle;
+  bool _micActive = false;
+  String _liveTranscript = '';
   final List<_HistoryItem> _history = [];
   StreamSubscription<String>? _transcriptSub;
   StreamSubscription<VoiceCommandIntent>? _intentSub;
 
-  // ── Human-readable responses keyed by JbVoiceAction.name ─────────────────
-  // FIX: keys now match JbVoiceAction enum names exactly
   static String _responseFor(JbVoiceAction action, {String? payload}) {
     switch (action) {
       case JbVoiceAction.play:             return 'Playing music';
@@ -71,7 +66,6 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
     }
   }
 
-  // ── Human-readable label for history (what the user said, prettified) ─────
   static String _historyLabel(VoiceCommandIntent intent) {
     final p = intent.payload;
     switch (intent.action) {
@@ -94,8 +88,6 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
       vsync: this,
       duration: const Duration(seconds: 2),
     );
-    // Only animate when active — prevents BLASTBufferQueue overflow
-    if (_orbState != OrbState.idle) _orbCtrl.repeat();
 
     _initTts();
     _bindVoiceStream();
@@ -117,57 +109,89 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
   }
 
   void _bindVoiceStream() {
-    final voiceEngine = context.read<MusicBloc>().voiceEngine;
+    final musicBloc = context.read<MusicBloc>();
+    final voiceEngine = musicBloc.voiceEngine;
 
-    // Live transcript display
-    _transcriptSub = voiceEngine.resultStream.listen((text) {
-      if (!mounted) return;
-      setState(() => _liveTranscript = text);
-    });
+    if (voiceEngine == null) {
+      debugPrint('❌ Voice engine is null');
+      return;
+    }
 
-    // Intent → history + TTS
-    _intentSub = voiceEngine.commandIntentStream.listen((intent) {
-      if (!mounted) return;
+    _transcriptSub = voiceEngine.resultStream.listen(
+      (text) {
+        if (!mounted) return;
+        setState(() => _liveTranscript = text);
+      },
+      onError: (error) {
+        debugPrint('Transcript error: $error');
+      },
+    );
 
-      final response = _responseFor(intent.action, payload: intent.payload);
-      final label    = _historyLabel(intent);
+    _intentSub = voiceEngine.commandIntentStream.listen(
+      (intent) {
+        if (!mounted) return;
 
-      setState(() {
-        _liveTranscript = '';
-        _history.insert(
-          0,
-          _HistoryItem(
-            command:  label,
+        final response = _responseFor(intent.action, payload: intent.payload);
+        final label = _historyLabel(intent);
+
+        setState(() {
+          _liveTranscript = '';
+          _history.insert(0, _HistoryItem(
+            command: label,
             response: response,
-            time:     TimeOfDay.now(),
-          ),
-        );
-        if (_history.length > 20) _history.removeLast();
-        _orbState = OrbState.thinking;
-      });
+            time: TimeOfDay.now(),
+          ));
+          if (_history.length > 20) _history.removeLast();
+          _orbState = OrbState.thinking;
+        });
 
-      Future.delayed(const Duration(milliseconds: 400), () {
-        if (mounted) _speak(response);
-      });
-    });
+        Future.delayed(const Duration(milliseconds: 400), () {
+          if (mounted) _speak(response);
+        });
+      },
+      onError: (error) {
+        debugPrint('Intent error: $error');
+      },
+    );
   }
 
   Future<void> _speak(String text) async {
     await _tts.speak(text);
   }
 
-  void _toggleMic() {
+  Future<bool> _checkMicrophonePermission() async {
+    final status = await Permission.microphone.status;
+    if (!status.isGranted) {
+      final result = await Permission.microphone.request();
+      return result.isGranted;
+    }
+    return true;
+  }
+
+  Future<void> _toggleMic() async {
     final bloc = context.read<MusicBloc>();
-    setState(() => _micActive = !_micActive);
-    if (_micActive) {
+    
+    if (!_micActive) {
+      final hasPermission = await _checkMicrophonePermission();
+      if (!hasPermission) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Microphone permission required')),
+          );
+        }
+        return;
+      }
+      
+      setState(() => _micActive = true);
       bloc.add(StartVoiceListeningEvent());
       setState(() => _orbState = OrbState.listening);
       _orbCtrl.repeat();
     } else {
+      setState(() => _micActive = false);
       bloc.add(StopVoiceListeningEvent());
       _orbCtrl.stop();
       setState(() {
-        _orbState       = OrbState.idle;
+        _orbState = OrbState.idle;
         _liveTranscript = '';
       });
     }
@@ -200,9 +224,6 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
     super.dispose();
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // BUILD
-  // ─────────────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -211,14 +232,14 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
         backgroundColor: Colors.transparent,
         title: Text('JB Assistant', style: RG.titleStyle),
         centerTitle: true,
+        elevation: 0,
       ),
       body: SafeArea(
         child: Column(
           children: [
-            // ── Command hint chips ─────────────────────────────────────────
             _CommandChips().animate().fadeIn(delay: 200.ms, duration: 500.ms),
             const Spacer(),
-            // ── Live transcript ────────────────────────────────────────────
+            
             AnimatedOpacity(
               duration: const Duration(milliseconds: 300),
               opacity: _liveTranscript.isNotEmpty ? 1 : 0,
@@ -244,7 +265,7 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
               ),
             ),
             const SizedBox(height: RG.spaceLG),
-            // ── Orb ───────────────────────────────────────────────────────
+            
             GestureDetector(
               onTap: _toggleMic,
               child: AnimatedBuilder(
@@ -263,7 +284,7 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
               ),
             ),
             const SizedBox(height: RG.spaceMD),
-            // ── Status ────────────────────────────────────────────────────
+            
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 250),
               child: Text(
@@ -281,7 +302,7 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
               style: RG.captionStyle,
             ),
             const Spacer(),
-            // ── History ───────────────────────────────────────────────────
+            
             if (_history.isNotEmpty) _HistoryPanel(history: _history),
             const SizedBox(height: RG.spaceLG),
           ],
@@ -291,9 +312,6 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// COMMAND CHIPS
-// ─────────────────────────────────────────────────────────────────────────────
 class _CommandChips extends StatelessWidget {
   static const _commands = [
     'Play music',
@@ -345,12 +363,9 @@ class _Chip extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HISTORY PANEL
-// ─────────────────────────────────────────────────────────────────────────────
 class _HistoryItem {
-  final String    command;
-  final String    response;
+  final String command;
+  final String response;
   final TimeOfDay time;
   const _HistoryItem({
     required this.command,

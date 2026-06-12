@@ -16,7 +16,7 @@ class JBSong {
     required this.album,
     required this.path,
     required this.durationMs,
-    required this.format,
+     this.format,
   });
   Duration get duration => Duration(milliseconds: durationMs);
 

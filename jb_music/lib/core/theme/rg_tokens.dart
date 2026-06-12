@@ -7,6 +7,7 @@ class RG {
 
   // ── Core Palette ──────────────────────────────────────────────────────────
   static const Color black      = Color(0xFF000000);
+  static const Color background = black;
   static const Color blackDeep  = Color(0xFF050505);
   static const Color gold       = Color(0xFFD4A847);
   static const Color goldLight  = Color(0xFFEDC96A);
@@ -166,3 +167,6 @@ class RG {
     ),
   );
 }
+
+
+typedef RGTokens = RG;

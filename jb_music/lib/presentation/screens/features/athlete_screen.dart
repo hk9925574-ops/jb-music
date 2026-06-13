@@ -4,8 +4,8 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:jb_music/application/bloc/music_bloc.dart';
+
+// FIX: removed unused flutter_bloc and music_bloc imports
 import 'package:jb_music/core/athlete/athlete_engine.dart';
 import 'package:jb_music/core/theme/rg_tokens.dart';
 
@@ -103,12 +103,12 @@ class _AthleteScreenState extends State<AthleteScreen> {
                     decoration: BoxDecoration(
                       color: selected ? RGTokens.gold : Colors.transparent,
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: selected ? RGTokens.gold : RGTokens.gold.withOpacity(0.3)),
+                      border: Border.all(color: selected ? RGTokens.gold : RGTokens.gold.withValues(alpha: 0.3)),
                     ),
                     child: Text(
                       '${_sportEmoji(sport)} ${sport.label}',
                       style: TextStyle(
-                        color: selected ? Colors.black : RGTokens.gold.withOpacity(0.7),
+                        color: selected ? Colors.black : RGTokens.gold.withValues(alpha: 0.7),
                         fontWeight: FontWeight.w600,
                         fontSize: 13,
                       ),
@@ -126,11 +126,10 @@ class _AthleteScreenState extends State<AthleteScreen> {
               decoration: BoxDecoration(
                 color: RGTokens.surface,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: RGTokens.gold.withOpacity(0.2)),
+                border: Border.all(color: RGTokens.gold.withValues(alpha: 0.2)),
               ),
               child: Column(
                 children: [
-                  // Timer
                   Text(
                     _formattedTime,
                     style: TextStyle(
@@ -147,13 +146,11 @@ class _AthleteScreenState extends State<AthleteScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // Zone indicator
                   if (_sessionActive) ...[
                     _buildZonePill(_currentZone),
                     const SizedBox(height: 20),
                   ],
 
-                  // Start / End button
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
@@ -193,8 +190,9 @@ class _AthleteScreenState extends State<AthleteScreen> {
                       min: 40,
                       max: 220,
                       divisions: 180,
+                      // FIX: Slider uses activeColor (not activeThumbColor — that's Switch only)
                       activeColor: RGTokens.gold,
-                      inactiveColor: RGTokens.gold.withOpacity(0.2),
+                      inactiveColor: RGTokens.gold.withValues(alpha: 0.2),
                       onChanged: (v) {
                         final hr = v.round();
                         setState(() => _manualHR = hr);
@@ -222,9 +220,9 @@ class _AthleteScreenState extends State<AthleteScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.5)),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
       child: Text(
         '● Zone: $zone',
@@ -239,10 +237,10 @@ class _AthleteScreenState extends State<AthleteScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: active ? RGTokens.gold.withOpacity(0.1) : Colors.transparent,
+        color: active ? RGTokens.gold.withValues(alpha: 0.1) : Colors.transparent,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: active ? RGTokens.gold.withOpacity(0.5) : Colors.white12,
+          color: active ? RGTokens.gold.withValues(alpha: 0.5) : Colors.white12,
         ),
       ),
       child: Row(
@@ -260,7 +258,7 @@ class _AthleteScreenState extends State<AthleteScreen> {
           ),
           Text(
             '${zone.musicBpmRange.$1}–${zone.musicBpmRange.$2} BPM music',
-            style: TextStyle(color: Colors.white54, fontSize: 12),
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
           ),
         ],
       ),
@@ -288,4 +286,3 @@ class _AthleteScreenState extends State<AthleteScreen> {
     JBSport.hiit     => '🔥',
   };
 }
-

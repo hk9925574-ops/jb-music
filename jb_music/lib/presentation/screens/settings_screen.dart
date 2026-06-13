@@ -1,15 +1,10 @@
 // lib/presentation/screens/settings_screen.dart
-//
-// JB Musiq — Settings Screen
-// Theme: AMOLED black + gold (single theme, no variants)
-// Voice: wired to VoskVoiceEngine via MusicBloc (real, not fake timer)
-// ─────────────────────────────────────────────────────────────────────────────
-
+// FIX: EQ preset + audio mode changes wired to real DSP engine
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-
 import 'package:jb_music/application/bloc/music_bloc.dart';
+import 'package:jb_music/core/audio/dsp_engine.dart';
 import 'package:jb_music/core/theme/rg_tokens.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -20,70 +15,57 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   // ── Audio settings ──────────────────────────────────────────────────────
-  String _audioMode = 'normal';
-  String _eqPreset  = 'flat';
-  bool _safeListening = true;
-  bool _crossfade     = true;
-  bool _notifications = true;
+  EqPreset _eqPreset    = EqPreset.flat;
+  bool _safeListening   = true;
+  bool _crossfade       = true;
+  bool _notifications   = true;
+  bool _bassBoostOn     = false;
+  bool _vocalClearOn    = false;
+  bool _is8DOn          = false;
 
   // ── Voice settings ──────────────────────────────────────────────────────
-  bool _voiceEnabled = true;
-  bool _voiceListening = false;
-  String _voiceStatus = '';
+  bool _voiceEnabled    = true;
+  bool _voiceListening  = false;
+  String _voiceStatus   = '';
   StreamSubscription? _voiceSub;
 
-  final List<Map<String, dynamic>> _audioModes = [
-    {'id': 'normal',   'label': 'Normal',      'icon': Icons.volume_up_rounded},
-    {'id': 'bass',     'label': 'Bass Boost',  'icon': Icons.graphic_eq_rounded},
-    {'id': 'vocal',    'label': 'Vocal Clear', 'icon': Icons.record_voice_over_rounded},
-    {'id': 'surround', 'label': 'Surround',    'icon': Icons.surround_sound_rounded},
-  ];
+  @override
+  void initState() {
+    super.initState();
+    // Sync toggles from DSP engine
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final dsp = context.read<MusicBloc>().dspEngine;
+      setState(() {
+        _eqPreset      = dsp.activePreset;
+        _bassBoostOn   = dsp.isBassBoostEnabled;
+        _vocalClearOn  = dsp.isVocalClearEnabled;
+        _is8DOn        = dsp.is8DEnabled;
+      });
+    });
+  }
 
-  final List<String> _eqPresets = [
-    'Flat', 'Bass+', 'Treble+', 'Pop', 'Rock', 'Jazz', 'Classical',
-  ];
-
-  // ── Real voice test: starts Vosk, listens for one command ───────────────
+  // ── Real voice test ────────────────────────────────────────────────────
   Future<void> _startVoiceTest() async {
     if (_voiceListening) return;
-
     final bloc = context.read<MusicBloc>();
-
-    setState(() {
-      _voiceListening = true;
-      _voiceStatus = 'Listening…';
-    });
-
+    setState(() { _voiceListening = true; _voiceStatus = 'Listening…'; });
     try {
-      // Start the voice engine through the bloc
       bloc.add(StartVoiceListeningEvent());
-
-      // Subscribe to voice results from the bloc's voice engine
       _voiceSub = bloc.voiceEngine.resultStream.listen(
         (result) {
           if (!mounted) return;
           final text = result.trim().toLowerCase();
           if (text.isEmpty) return;
-
           setState(() => _voiceStatus = 'Heard: "$text"');
-
-          // Dispatch the recognised command as a bloc event
-          //bloc.add(VoiceCommandEvent(intent: text));
-           debugPrint('Voice heard: $text');
-          // Stop after first result
           _stopVoiceTest();
         },
         onError: (e) {
           if (!mounted) return;
-          setState(() {
-            _voiceStatus = 'Error: $e';
-            _voiceListening = false;
-          });
+          setState(() { _voiceStatus = 'Error: $e'; _voiceListening = false; });
           bloc.add(StopVoiceListeningEvent());
         },
       );
-
-      // Auto-stop after 8 seconds if no command received
       Future.delayed(const Duration(seconds: 8), () {
         if (_voiceListening && mounted) {
           setState(() => _voiceStatus = 'No command heard. Try again.');
@@ -92,10 +74,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _voiceStatus = 'Voice engine error: $e';
-        _voiceListening = false;
-      });
+      setState(() { _voiceStatus = 'Voice engine error: $e'; _voiceListening = false; });
     }
   }
 
@@ -112,17 +91,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
+  // ── DSP helpers ────────────────────────────────────────────────────────
+  Future<void> _applyEqPreset(EqPreset preset) async {
+    setState(() => _eqPreset = preset);
+    await context.read<MusicBloc>().dspEngine.applyPreset(preset);
+  }
+
+  Future<void> _toggleBassBoost(bool v) async {
+    setState(() => _bassBoostOn = v);
+    await context.read<MusicBloc>().dspEngine.setBassBoost(v);
+  }
+
+  Future<void> _toggleVocalClear(bool v) async {
+    setState(() => _vocalClearOn = v);
+    await context.read<MusicBloc>().dspEngine.setVocalClear(v);
+  }
+
+  Future<void> _toggle8D(bool v) async {
+    setState(() => _is8DOn = v);
+    await context.read<MusicBloc>().dspEngine.set8DMode(v);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: RG.black,
-      appBar: AppBar(
-        title: const Text('Settings'),
-        // AppBar style comes from theme — no override needed
-      ),
+      appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
         children: [
+
           // ── VOICE COMMANDS ─────────────────────────────────────────────
           _sectionLabel('Voice Commands'),
           _card(
@@ -136,14 +134,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text('Voice Commands',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 15)),
+                            style: TextStyle(color: Colors.white,
+                                fontWeight: FontWeight.w700, fontSize: 15)),
                         const SizedBox(height: 2),
                         Text('Say a command to control playback',
-                            style: TextStyle(
-                                color: RG.textSecondary, fontSize: 12)),
+                            style: TextStyle(color: RG.textSecondary, fontSize: 12)),
                       ],
                     ),
                     Switch(
@@ -152,16 +147,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         setState(() => _voiceEnabled = v);
                         if (!v) _stopVoiceTest();
                       },
+                      activeThumbColor: RG.gold,
                     ),
                   ],
                 ),
-
                 if (_voiceEnabled) ...[
                   const SizedBox(height: 14),
-                  // Supported commands
                   Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
+                    spacing: 6, runSpacing: 6,
                     children: [
                       for (final cmd in [
                         'next song', 'previous song', 'play', 'pause',
@@ -170,16 +163,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         _CommandChip(label: cmd),
                     ],
                   ),
-
                   const SizedBox(height: 16),
-
-                  // Live status display
                   if (_voiceStatus.isNotEmpty)
                     AnimatedContainer(
                       duration: const Duration(milliseconds: 200),
                       width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                       margin: const EdgeInsets.only(bottom: 12),
                       decoration: BoxDecoration(
                         color: _voiceListening
@@ -204,9 +193,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             child: Text(
                               _voiceStatus,
                               style: TextStyle(
-                                color: _voiceListening
-                                    ? RG.gold
-                                    : RG.textSecondary,
+                                color: _voiceListening ? RG.gold : RG.textSecondary,
                                 fontSize: 12,
                                 fontWeight: FontWeight.w500,
                               ),
@@ -215,18 +202,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ],
                       ),
                     ),
-
-                  // Test / Stop button
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor:
-                            _voiceListening ? RG.error : RG.gold,
+                        backgroundColor: _voiceListening ? RG.error : RG.gold,
                         foregroundColor: Colors.black,
                       ),
-                      onPressed:
-                          _voiceListening ? _stopVoiceTest : _startVoiceTest,
+                      onPressed: _voiceListening ? _stopVoiceTest : _startVoiceTest,
                       icon: Icon(
                         _voiceListening ? Icons.stop_rounded : Icons.mic_rounded,
                         size: 18,
@@ -243,79 +226,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 24),
 
-          // ── AUDIO ──────────────────────────────────────────────────────
-          _sectionLabel('Audio'),
+          // ── AUDIO EFFECTS ──────────────────────────────────────────────
+          _sectionLabel('Audio Effects'),
           _card(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Audio Mode',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14)),
-                const SizedBox(height: 10),
-                GridView.count(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 8,
-                  mainAxisSpacing: 8,
-                  childAspectRatio: 3,
-                  children: _audioModes.map((m) {
-                    final active = _audioMode == m['id'];
-                    return GestureDetector(
-                      onTap: () => setState(() => _audioMode = m['id']),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 150),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 8),
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: active ? RG.gold : RG.border,
-                            width: active ? 1.5 : 0.8,
-                          ),
-                          borderRadius: BorderRadius.circular(10),
-                          color: active
-                              ? RG.gold.withValues(alpha: 0.08)
-                              : RG.surfaceHigh,
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(m['icon'] as IconData,
-                                color: active ? RG.gold : RG.textSecondary,
-                                size: 16),
-                            const SizedBox(width: 6),
-                            Text(m['label'],
-                                style: TextStyle(
-                                    color: active ? RG.gold : RG.textSecondary,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 12)),
-                          ],
-                        ),
-                      ),
-                    );
-                  }).toList(),
+                // Bass / Vocal / 8D toggles
+                Row(
+                  children: [
+                    Expanded(child: _EffectSwitch(
+                      label: 'Bass Boost', icon: Icons.speaker,
+                      value: _bassBoostOn, onChanged: _toggleBassBoost,
+                    )),
+                    const SizedBox(width: 8),
+                    Expanded(child: _EffectSwitch(
+                      label: 'Vocal Clear', icon: Icons.mic,
+                      value: _vocalClearOn, onChanged: _toggleVocalClear,
+                    )),
+                    const SizedBox(width: 8),
+                    Expanded(child: _EffectSwitch(
+                      label: '8D Audio', icon: Icons.headphones,
+                      value: _is8DOn, onChanged: _toggle8D,
+                    )),
+                  ],
                 ),
-
                 const SizedBox(height: 16),
                 Divider(color: RG.border, height: 1),
-                const SizedBox(height: 16),
-
+                const SizedBox(height: 14),
+                // EQ Preset chips – FIX: wired to real DSP engine
                 const Text('EQ Preset',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14)),
+                    style: TextStyle(color: Colors.white,
+                        fontWeight: FontWeight.w600, fontSize: 14)),
                 const SizedBox(height: 10),
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
-                    children: _eqPresets.map((p) {
-                      final active = _eqPreset == p.toLowerCase();
+                    children: EqPreset.values.map((p) {
+                      final active = _eqPreset == p;
                       return GestureDetector(
-                        onTap: () =>
-                            setState(() => _eqPreset = p.toLowerCase()),
+                        onTap: () => _applyEqPreset(p),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 150),
                           margin: const EdgeInsets.only(right: 8),
@@ -327,7 +277,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 color: active ? RG.gold : RG.border),
                             borderRadius: BorderRadius.circular(20),
                           ),
-                          child: Text(p,
+                          child: Text(p.label,
                               style: TextStyle(
                                   color: active ? Colors.black : RG.textSecondary,
                                   fontWeight: FontWeight.w600,
@@ -337,16 +287,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     }).toList(),
                   ),
                 ),
-
                 const SizedBox(height: 16),
                 Divider(color: RG.border, height: 1),
-
                 _settingsRow(
                   'Crossfade',
                   'Smooth transitions between tracks',
                   Switch(
                       value: _crossfade,
-                      onChanged: (v) => setState(() => _crossfade = v)),
+                      onChanged: (v) => setState(() => _crossfade = v),
+                      activeThumbColor: RG.gold),
                 ),
               ],
             ),
@@ -363,7 +312,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'WHO 80 dB limit enforced',
                   Switch(
                       value: _safeListening,
-                      onChanged: (v) => setState(() => _safeListening = v)),
+                      onChanged: (v) => setState(() => _safeListening = v),
+                      activeThumbColor: RG.gold),
                 ),
                 Divider(color: RG.border, height: 1),
                 _settingsRow(
@@ -371,7 +321,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'Notifications when limit is reached',
                   Switch(
                       value: _notifications,
-                      onChanged: (v) => setState(() => _notifications = v)),
+                      onChanged: (v) => setState(() => _notifications = v),
+                      activeThumbColor: RG.gold),
                 ),
               ],
             ),
@@ -384,15 +335,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               children: [
                 _settingsRow(
-                    'Version', 'JB Musiq v3.0.0',
+                    'Version', 'JB Music v3.1.0',
                     Text('Up to date',
-                        style: TextStyle(
-                            color: RG.success, fontSize: 12))),
+                        style: TextStyle(color: RG.success, fontSize: 12))),
                 Divider(color: RG.border, height: 1),
                 _settingsRow(
                     'Privacy Policy', '',
-                    Icon(Icons.chevron_right_rounded,
-                        color: RG.textMuted)),
+                    Icon(Icons.chevron_right_rounded, color: RG.textMuted)),
               ],
             ),
           ),
@@ -400,8 +349,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
-
-  // ── Helpers ──────────────────────────────────────────────────────────────
 
   Widget _sectionLabel(String label) => Padding(
         padding: const EdgeInsets.only(bottom: 10),
@@ -455,9 +402,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Command chip
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Effect toggle (compact card) ─────────────────────────────────────────────
+class _EffectSwitch extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  const _EffectSwitch({
+    required this.label, required this.icon,
+    required this.value, required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => onChanged(!value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+        decoration: BoxDecoration(
+          color: value ? RG.gold.withValues(alpha: 0.12) : RG.surfaceHigh,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+              color: value ? RG.gold.withValues(alpha: 0.5) : RG.border),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: value ? RG.gold : RG.textMuted, size: 20),
+            const SizedBox(height: 4),
+            Text(label,
+                style: TextStyle(
+                    color: value ? RG.gold : RG.textSecondary,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600),
+                textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Command chip ──────────────────────────────────────────────────────────────
 class _CommandChip extends StatelessWidget {
   final String label;
   const _CommandChip({required this.label});
@@ -480,9 +467,7 @@ class _CommandChip extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Pulsing dot — shown while listening
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Pulsing dot ───────────────────────────────────────────────────────────────
 class _PulsingDot extends StatefulWidget {
   @override
   State<_PulsingDot> createState() => _PulsingDotState();

@@ -15,9 +15,16 @@ class MiniPlayerBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<MusicBloc, MusicState>(
+      // FIX: also rebuild when the actual current song changes (id), not just index
       buildWhen: (prev, next) {
         if (prev is MusicTracksLoadedState && next is MusicTracksLoadedState) {
-          return prev.currentTrackIndex != next.currentTrackIndex ||
+          final prevSong = prev.visibleTracks.isNotEmpty
+              ? prev.visibleTracks[prev.currentTrackIndex.clamp(0, prev.visibleTracks.length - 1)]
+              : null;
+          final nextSong = next.visibleTracks.isNotEmpty
+              ? next.visibleTracks[next.currentTrackIndex.clamp(0, next.visibleTracks.length - 1)]
+              : null;
+          return prevSong?.id != nextSong?.id ||
               prev.isPlaying != next.isPlaying ||
               prev.visibleTracks.length != next.visibleTracks.length;
         }
@@ -83,7 +90,6 @@ class _MiniPlayer extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: RG.spaceMD),
             child: Row(
               children: [
-                // Artwork
                 ClipRRect(
                   borderRadius: BorderRadius.circular(RG.radiusSM),
                   child: QueryArtworkWidget(
@@ -101,7 +107,6 @@ class _MiniPlayer extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: RG.spaceMD),
-                // Track info
                 Expanded(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -126,7 +131,6 @@ class _MiniPlayer extends StatelessWidget {
                     ],
                   ),
                 ),
-                // Controls
                 _PlayButton(isPlaying: isPlaying),
                 const SizedBox(width: RG.spaceSM),
                 _NextButton(),

@@ -39,10 +39,8 @@ class SongTile extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // Artwork
             _ArtworkThumbnail(song: song, isPlaying: isPlaying),
             const SizedBox(width: RG.spaceMD),
-            // Title + artist
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -67,16 +65,14 @@ class SongTile extends StatelessWidget {
                 ],
               ),
             ),
-            // Duration — song.duration is Duration, no null check needed
-            if (song.duration != null)
-              Padding(
-                padding: const EdgeInsets.only(right: RG.spaceSM),
-                child: Text(
-                  _formatDuration(song.duration!),
-                  style: RG.labelStyle,
-                ),
+            // FIX: song.duration is non-nullable Duration, remove null check and !
+            Padding(
+              padding: const EdgeInsets.only(right: RG.spaceSM),
+              child: Text(
+                _formatDuration(song.duration),
+                style: RG.labelStyle,
               ),
-            // Like button
+            ),
             if (onLike != null)
               GestureDetector(
                 onTap: onLike,
@@ -104,7 +100,6 @@ class SongTile extends StatelessWidget {
     );
   }
 
-  // Fix: accept Duration directly — no need to wrap in Duration(milliseconds:…)
   String _formatDuration(Duration d) {
     final m = d.inMinutes;
     final s = d.inSeconds % 60;

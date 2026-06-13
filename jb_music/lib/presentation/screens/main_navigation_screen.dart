@@ -1,4 +1,5 @@
 // lib/presentation/screens/main_navigation_screen.dart
+// FIX: Voice engine started only once (not on every tab switch)
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:jb_music/application/bloc/music_bloc.dart';
@@ -19,6 +20,7 @@ class MainNavigationScreen extends StatefulWidget {
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
+  bool _voiceStarted = false;
 
   static const _screens = [
     DashboardScreen(),
@@ -31,8 +33,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   @override
   void initState() {
     super.initState();
+    // FIX: start voice once, not on every rebuild / tab switch
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
+      if (mounted && !_voiceStarted) {
+        _voiceStarted = true;
         context.read<MusicBloc>().add(StartVoiceListeningEvent());
       }
     });
@@ -69,11 +73,11 @@ class _JBNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const items = [
-      _NavItem(icon: Icons.home_outlined,        activeIcon: Icons.home,           label: 'Home'),
-      _NavItem(icon: Icons.library_music_outlined, activeIcon: Icons.library_music, label: 'Library'),
-      _NavItem(icon: Icons.search_outlined,      activeIcon: Icons.search,         label: 'Search'),
-      _NavItem(icon: Icons.mic_none_outlined,    activeIcon: Icons.mic,            label: 'JB'),
-      _NavItem(icon: Icons.settings_outlined,    activeIcon: Icons.settings,       label: 'Settings'),
+      _NavItem(icon: Icons.home_outlined,          activeIcon: Icons.home,           label: 'Home'),
+      _NavItem(icon: Icons.library_music_outlined, activeIcon: Icons.library_music,  label: 'Library'),
+      _NavItem(icon: Icons.search_outlined,        activeIcon: Icons.search,          label: 'Search'),
+      _NavItem(icon: Icons.mic_none_outlined,      activeIcon: Icons.mic,             label: 'JB'),
+      _NavItem(icon: Icons.settings_outlined,      activeIcon: Icons.settings,        label: 'Settings'),
     ];
 
     return Container(
@@ -87,9 +91,9 @@ class _JBNavBar extends StatelessWidget {
           height: 62,
           child: Row(
             children: List.generate(items.length, (i) {
-              final item    = items[i];
-              final active  = i == currentIndex;
-              final isJB    = i == 3; // JB Assistant — special gold treatment
+              final item   = items[i];
+              final active = i == currentIndex;
+              final isJB   = i == 3;
               return Expanded(
                 child: GestureDetector(
                   onTap: () => onTap(i),
@@ -99,7 +103,7 @@ class _JBNavBar extends StatelessWidget {
                     children: [
                       AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
-                        width: isJB && active ? 42 : 28,
+                        width:  isJB && active ? 42 : 28,
                         height: isJB && active ? 42 : 28,
                         decoration: isJB && active
                             ? const BoxDecoration(
@@ -123,7 +127,8 @@ class _JBNavBar extends StatelessWidget {
                         style: TextStyle(
                           color: active ? Colors.white : Colors.white38,
                           fontSize: 10,
-                          fontWeight: active ? FontWeight.w700 : FontWeight.w400,
+                          fontWeight:
+                              active ? FontWeight.w700 : FontWeight.w400,
                         ),
                       ),
                     ],
@@ -141,6 +146,7 @@ class _JBNavBar extends StatelessWidget {
 class _NavItem {
   final IconData icon;
   final IconData activeIcon;
-  final String label;
-  const _NavItem({required this.icon, required this.activeIcon, required this.label});
+  final String   label;
+  const _NavItem(
+      {required this.icon, required this.activeIcon, required this.label});
 }

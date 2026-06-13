@@ -56,7 +56,7 @@ class _QueueScreenState extends State<QueueScreen> {
           : ReorderableListView.builder(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               itemCount: items.length,
-              onReorder: (oldIndex, newIndex) {
+              onReorderItem: (oldIndex, newIndex) {
                 widget.queue.reorder(oldIndex, newIndex);
                 setState(() {});
               },
@@ -86,7 +86,7 @@ class _QueueScreenState extends State<QueueScreen> {
                       leading: Container(
                         width: 36, height: 36,
                         decoration: BoxDecoration(
-                          color: RGTokens.gold.withOpacity(0.1),
+                          color: RGTokens.gold.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Center(
@@ -148,7 +148,7 @@ class _QueueScreenState extends State<QueueScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(label, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w600)),

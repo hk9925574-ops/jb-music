@@ -1,7 +1,7 @@
-// lib/presentation/screens/player_screen.dart
+// lib/screens/player_screen.dart
 //
-// JB Musiq — Player Screen
-// Theme: AMOLED black + gold (single unified theme)
+// JB Music — Player Screen
+// Theme: AMOLED black + gold
 // Tabs: Art | Lyrics | Queue
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -35,7 +35,6 @@ class _PlayerScreenState extends State<PlayerScreen>
   late final AnimationController _pulseCtrl;
   late final TabController _tabCtrl;
 
-  // Palette — derived from artwork but darkened for AMOLED
   Color _bgA = const Color(0xFF000000);
   Color _bgB = const Color(0xFF0A0A0A);
 
@@ -44,8 +43,8 @@ class _PlayerScreenState extends State<PlayerScreen>
   int? _sleepMinutes;
   DateTime? _sleepEnd;
 
-  int _repeatMode = 0; // 0=none 1=all 2=one
-  bool _shuffle = false;
+  int  _repeatMode = 0; // 0=none 1=all 2=one
+  bool _shuffle    = false;
 
   @override
   void initState() {
@@ -84,19 +83,20 @@ class _PlayerScreenState extends State<PlayerScreen>
       final dominant = gen.dominantColor?.color ?? Colors.black;
       if (!mounted) return;
       setState(() {
-        // Keep very dark — AMOLED style, just a subtle tint
         _bgA = _darken(dominant, 0.25);
         _bgB = const Color(0xFF000000);
       });
     } catch (_) {}
   }
 
-  Color _darken(Color c, double factor) => Color.fromARGB(
-        (c.a * 255).round().clamp(0, 255),
-        (c.r * 255 * factor).round().clamp(0, 255),
-        (c.g * 255 * factor).round().clamp(0, 255),
-        (c.b * 255 * factor).round().clamp(0, 255),
-      );
+  // FIX: use Color.fromARGB with int values — avoid deprecated .r/.g/.b/.a doubles
+  Color _darken(Color c, double factor) {
+    final r = ((c.r * 255) * factor).round().clamp(0, 255);
+    final g = ((c.g * 255) * factor).round().clamp(0, 255);
+    final b = ((c.b * 255) * factor).round().clamp(0, 255);
+    final a = (c.a * 255).round().clamp(0, 255);
+    return Color.fromARGB(a, r, g, b);
+  }
 
   @override
   void dispose() {
@@ -125,21 +125,21 @@ class _PlayerScreenState extends State<PlayerScreen>
           if (minutes == null) {
             setState(() {
               _sleepMinutes = null;
-              _sleepEnd = null;
+              _sleepEnd     = null;
             });
             return;
           }
           final end = DateTime.now().add(Duration(minutes: minutes));
           setState(() {
             _sleepMinutes = minutes;
-            _sleepEnd = end;
+            _sleepEnd     = end;
           });
           _sleepTimer = Timer(Duration(minutes: minutes), () {
             context.read<MusicBloc>().audioHandler.pause();
             if (mounted) {
               setState(() {
                 _sleepMinutes = null;
-                _sleepEnd = null;
+                _sleepEnd     = null;
               });
             }
           });
@@ -152,12 +152,9 @@ class _PlayerScreenState extends State<PlayerScreen>
     setState(() => _repeatMode = (_repeatMode + 1) % 3);
     final handler = context.read<MusicBloc>().audioHandler;
     switch (_repeatMode) {
-      case 0:
-        handler.setRepeatMode(AudioServiceRepeatMode.none);
-      case 1:
-        handler.setRepeatMode(AudioServiceRepeatMode.all);
-      case 2:
-        handler.setRepeatMode(AudioServiceRepeatMode.one);
+      case 0: handler.setRepeatMode(AudioServiceRepeatMode.none);
+      case 1: handler.setRepeatMode(AudioServiceRepeatMode.all);
+      case 2: handler.setRepeatMode(AudioServiceRepeatMode.one);
     }
   }
 
@@ -171,7 +168,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   @override
   Widget build(BuildContext context) {
-    final bloc = context.read<MusicBloc>();
+    final bloc    = context.read<MusicBloc>();
     final handler = bloc.audioHandler;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -215,7 +212,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                           handler.set8DMode(v);
                         },
                         onShuffle: _toggleShuffle,
-                        onRepeat: _cycleRepeat,
+                        onRepeat:  _cycleRepeat,
                         fmtDuration: _fmt,
                       ),
                       const _LyricsTab(),
@@ -238,8 +235,8 @@ class _PlayerScreenState extends State<PlayerScreen>
 class _TopBar extends StatelessWidget {
   final VoidCallback onBack;
   final VoidCallback onSleep;
-  final bool sleepActive;
-  final DateTime? sleepEnd;
+  final bool         sleepActive;
+  final DateTime?    sleepEnd;
 
   const _TopBar({
     required this.onBack,
@@ -313,8 +310,8 @@ class _SleepCountdown extends StatefulWidget {
 }
 
 class _SleepCountdownState extends State<_SleepCountdown> {
-  late Timer _ticker;
-  Duration _remaining = Duration.zero;
+  late Timer  _ticker;
+  Duration    _remaining = Duration.zero;
 
   @override
   void initState() {
@@ -401,7 +398,7 @@ class _ArtTab extends StatelessWidget {
   final AnimationController pulseCtrl;
   final bool is8D;
   final bool shuffle;
-  final int repeatMode;
+  final int  repeatMode;
   final ValueChanged<bool> onToggle8D;
   final VoidCallback onShuffle;
   final VoidCallback onRepeat;
@@ -431,7 +428,7 @@ class _ArtTab extends StatelessWidget {
           children: [
             const SizedBox(height: 8),
 
-            // ── Vinyl artwork ────────────────────────────────────────────
+            // ── Vinyl artwork ──────────────────────────────────────────
             StreamBuilder<PlayerState>(
               stream: handler.playerStateStream,
               builder: (context, snap) {
@@ -449,7 +446,6 @@ class _ArtTab extends StatelessWidget {
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
-                        // Pulse ring (gold, subtle)
                         AnimatedBuilder(
                           animation: pulseCtrl,
                           builder: (_, __) => Container(
@@ -467,7 +463,6 @@ class _ArtTab extends StatelessWidget {
                             ),
                           ),
                         ),
-                        // Mid ring
                         Container(
                           width: 236,
                           height: 236,
@@ -479,7 +474,6 @@ class _ArtTab extends StatelessWidget {
                             ),
                           ),
                         ),
-                        // Rotating vinyl disc
                         RotationTransition(
                           turns: vinylCtrl,
                           child: Hero(
@@ -527,7 +521,6 @@ class _ArtTab extends StatelessWidget {
                             ),
                           ),
                         ),
-                        // Centre hole
                         Container(
                           width: 24,
                           height: 24,
@@ -546,54 +539,83 @@ class _ArtTab extends StatelessWidget {
 
             const SizedBox(height: 28),
 
-            // ── Track info ───────────────────────────────────────────────
-            Text(
-              track.title,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.2,
-                shadows: [
-                  Shadow(
-                      color: RG.gold.withValues(alpha: 0.35),
-                      blurRadius: 10),
-                ],
-              ),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              track.artist,
-              style: TextStyle(color: RG.textSecondary, fontSize: 14),
+            // ── Track info ─────────────────────────────────────────────
+            // FIX: use BlocBuilder so title/artist update when track changes
+            BlocBuilder<MusicBloc, MusicState>(
+              buildWhen: (p, n) {
+                if (p is MusicTracksLoadedState && n is MusicTracksLoadedState) {
+                  return p.currentTrackIndex != n.currentTrackIndex;
+                }
+                return false;
+              },
+              builder: (context, state) {
+                final current = state is MusicTracksLoadedState &&
+                        state.visibleTracks.isNotEmpty
+                    ? state.visibleTracks[state.currentTrackIndex
+                        .clamp(0, state.visibleTracks.length - 1)]
+                    : track;
+                return Column(
+                  children: [
+                    Text(
+                      current.title,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.2,
+                        shadows: [
+                          Shadow(
+                              color: RG.gold.withValues(alpha: 0.35),
+                              blurRadius: 10),
+                        ],
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      current.artist,
+                      style: TextStyle(color: RG.textSecondary, fontSize: 14),
+                    ),
+                  ],
+                );
+              },
             ),
 
             const SizedBox(height: 28),
 
-            // ── Progress bar ─────────────────────────────────────────────
+            // ── Progress bar ───────────────────────────────────────────
             StreamBuilder<Duration>(
               stream: handler.positionStream,
               builder: (context, posSnap) {
                 return StreamBuilder<Duration?>(
                   stream: handler.durationStream,
                   builder: (context, durSnap) {
-                    final pos = posSnap.data ?? Duration.zero;
-                    final dur = durSnap.data ?? Duration.zero;
+                    final pos   = posSnap.data ?? Duration.zero;
+                    final dur   = durSnap.data ?? Duration.zero;
                     final maxMs = dur.inMilliseconds > 0
                         ? dur.inMilliseconds.toDouble()
                         : 1.0;
 
                     return Column(
                       children: [
-                        Slider(
-                          value: pos.inMilliseconds
-                              .toDouble()
-                              .clamp(0.0, maxMs),
-                          max: maxMs,
-                          onChanged: (v) => handler.seek(
-                              Duration(milliseconds: v.toInt())),
+                        SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            trackHeight: 3,
+                            thumbShape: const RoundSliderThumbShape(
+                                enabledThumbRadius: 6),
+                            overlayShape: const RoundSliderOverlayShape(
+                                overlayRadius: 14),
+                          ),
+                          child: Slider(
+                            value: pos.inMilliseconds
+                                .toDouble()
+                                .clamp(0.0, maxMs),
+                            max: maxMs,
+                            onChanged: (v) => handler
+                                .seek(Duration(milliseconds: v.toInt())),
+                          ),
                         ),
                         Padding(
                           padding:
@@ -620,7 +642,7 @@ class _ArtTab extends StatelessWidget {
 
             const SizedBox(height: 16),
 
-            // ── Playback controls ────────────────────────────────────────
+            // ── Playback controls ──────────────────────────────────────
             StreamBuilder<PlayerState>(
               stream: handler.playerStateStream,
               builder: (context, snap) {
@@ -638,7 +660,6 @@ class _ArtTab extends StatelessWidget {
                           color: Colors.white, size: 42),
                       onPressed: () => handler.skipToPrevious(),
                     ),
-                    // Play / pause button
                     GestureDetector(
                       onTap: () =>
                           playing ? handler.pause() : handler.play(),
@@ -684,7 +705,7 @@ class _ArtTab extends StatelessWidget {
 
             const SizedBox(height: 22),
 
-            // ── 8D Spatial Audio toggle ──────────────────────────────────
+            // ── 8D Spatial Audio toggle ────────────────────────────────
             Container(
               padding: const EdgeInsets.symmetric(
                   horizontal: 16, vertical: 10),
@@ -718,6 +739,7 @@ class _ArtTab extends StatelessWidget {
                   Switch(
                     value: is8D,
                     onChanged: onToggle8D,
+                    activeThumbColor: RG.gold,
                   ),
                 ],
               ),
@@ -768,7 +790,7 @@ class _LyricsTab extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 class _QueueTab extends StatelessWidget {
   final MusicBloc bloc;
-  final dynamic handler;
+  final dynamic   handler;
 
   const _QueueTab({required this.bloc, required this.handler});
 
@@ -811,7 +833,7 @@ class _QueueTab extends StatelessWidget {
 
 class _QueueTile extends StatelessWidget {
   final JBSong song;
-  final bool isCurrent;
+  final bool   isCurrent;
   final VoidCallback onTap;
 
   const _QueueTile({
@@ -900,7 +922,7 @@ class _QueueTile extends StatelessWidget {
 // SLEEP TIMER BOTTOM SHEET
 // ─────────────────────────────────────────────────────────────────────────────
 class _SleepTimerSheet extends StatelessWidget {
-  final int? activeMinutes;
+  final int?      activeMinutes;
   final DateTime? sleepEnd;
   final void Function(int? minutes) onSelect;
 
@@ -1027,8 +1049,8 @@ class _SleepTimerSheet extends StatelessWidget {
 // CONTROL ICON — shuffle / repeat
 // ─────────────────────────────────────────────────────────────────────────────
 class _ControlIcon extends StatelessWidget {
-  final IconData icon;
-  final bool active;
+  final IconData     icon;
+  final bool         active;
   final VoidCallback onTap;
 
   const _ControlIcon({
@@ -1053,8 +1075,7 @@ class _ControlIcon extends StatelessWidget {
                 color: RG.goldGlow,
               ),
             ),
-          Icon(icon,
-              color: active ? RG.gold : RG.textMuted, size: 24),
+          Icon(icon, color: active ? RG.gold : RG.textMuted, size: 24),
           if (active)
             Positioned(
               bottom: 4,

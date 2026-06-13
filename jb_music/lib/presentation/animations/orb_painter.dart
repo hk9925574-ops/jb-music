@@ -27,7 +27,7 @@ class OrbPainter extends CustomPainter {
         final rippleRadius   = radius + radius * 0.6 * rippleProgress;
         final opacity        = (1.0 - rippleProgress).clamp(0.0, 1.0);
         final paint = Paint()
-          ..color = baseColor.withOpacity(opacity * 0.35) 
+          ..color = baseColor.withValues(alpha: opacity * 0.35) 
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.5;
         canvas.drawCircle(centre, rippleRadius, paint);
@@ -64,7 +64,7 @@ class OrbPainter extends CustomPainter {
 
     // ── Specular highlight ───────────────────────────────────────────────
     final highlightPaint = Paint()
-      ..color = Colors.white.withOpacity(0.18)
+      ..color = Colors.white.withValues(alpha: 0.18)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
     canvas.drawCircle(
       centre + Offset(-radius * 0.28, -radius * 0.28),
@@ -81,7 +81,7 @@ class OrbPainter extends CustomPainter {
   void _drawWaveBars(Canvas canvas, Offset centre, double radius, double t) {
     const barCount = 5;
     final barPaint = Paint()
-      ..color = Colors.white.withOpacity(0.7)
+      ..color = Colors.white.withValues(alpha: 0.7)
       ..strokeCap = StrokeCap.round
       ..strokeWidth = 3;
 

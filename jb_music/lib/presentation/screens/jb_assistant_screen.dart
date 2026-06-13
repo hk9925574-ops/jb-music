@@ -10,9 +10,6 @@ import 'package:jb_music/domain/entities/voice_intent.dart';
 import 'package:jb_music/presentation/animations/orb_painter.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SCREEN
-// ─────────────────────────────────────────────────────────────────────────────
 class JBAssistantScreen extends StatefulWidget {
   const JBAssistantScreen({super.key});
 
@@ -109,13 +106,9 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
   }
 
   void _bindVoiceStream() {
-    final musicBloc = context.read<MusicBloc>();
+    final musicBloc   = context.read<MusicBloc>();
+    // FIX: voiceEngine is non-nullable — remove null check
     final voiceEngine = musicBloc.voiceEngine;
-
-    if (voiceEngine == null) {
-      debugPrint('❌ Voice engine is null');
-      return;
-    }
 
     _transcriptSub = voiceEngine.resultStream.listen(
       (text) {
@@ -132,14 +125,14 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
         if (!mounted) return;
 
         final response = _responseFor(intent.action, payload: intent.payload);
-        final label = _historyLabel(intent);
+        final label    = _historyLabel(intent);
 
         setState(() {
           _liveTranscript = '';
           _history.insert(0, _HistoryItem(
-            command: label,
+            command:  label,
             response: response,
-            time: TimeOfDay.now(),
+            time:     TimeOfDay.now(),
           ));
           if (_history.length > 20) _history.removeLast();
           _orbState = OrbState.thinking;
@@ -170,7 +163,7 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
 
   Future<void> _toggleMic() async {
     final bloc = context.read<MusicBloc>();
-    
+
     if (!_micActive) {
       final hasPermission = await _checkMicrophonePermission();
       if (!hasPermission) {
@@ -181,19 +174,21 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
         }
         return;
       }
-      
-      setState(() => _micActive = true);
+
+      setState(() {
+        _micActive = true;
+        _orbState  = OrbState.listening;
+      });
       bloc.add(StartVoiceListeningEvent());
-      setState(() => _orbState = OrbState.listening);
       _orbCtrl.repeat();
     } else {
-      setState(() => _micActive = false);
-      bloc.add(StopVoiceListeningEvent());
-      _orbCtrl.stop();
       setState(() {
-        _orbState = OrbState.idle;
+        _micActive     = false;
+        _orbState      = OrbState.idle;
         _liveTranscript = '';
       });
+      bloc.add(StopVoiceListeningEvent());
+      _orbCtrl.stop();
     }
   }
 
@@ -239,7 +234,7 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
           children: [
             _CommandChips().animate().fadeIn(delay: 200.ms, duration: 500.ms),
             const Spacer(),
-            
+
             AnimatedOpacity(
               duration: const Duration(milliseconds: 300),
               opacity: _liveTranscript.isNotEmpty ? 1 : 0,
@@ -265,7 +260,7 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
               ),
             ),
             const SizedBox(height: RG.spaceLG),
-            
+
             GestureDetector(
               onTap: _toggleMic,
               child: AnimatedBuilder(
@@ -284,7 +279,7 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
               ),
             ),
             const SizedBox(height: RG.spaceMD),
-            
+
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 250),
               child: Text(
@@ -302,7 +297,7 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
               style: RG.captionStyle,
             ),
             const Spacer(),
-            
+
             if (_history.isNotEmpty) _HistoryPanel(history: _history),
             const SizedBox(height: RG.spaceLG),
           ],
@@ -314,14 +309,8 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
 
 class _CommandChips extends StatelessWidget {
   static const _commands = [
-    'Play music',
-    'Next song',
-    'Pause',
-    'Shuffle',
-    'Play favourites',
-    'Sleep timer 30 min',
-    'Volume up',
-    'Repeat',
+    'Play music', 'Next song', 'Pause', 'Shuffle',
+    'Play favourites', 'Sleep timer 30 min', 'Volume up', 'Repeat',
   ];
 
   @override
@@ -364,8 +353,8 @@ class _Chip extends StatelessWidget {
 }
 
 class _HistoryItem {
-  final String command;
-  final String response;
+  final String    command;
+  final String    response;
   final TimeOfDay time;
   const _HistoryItem({
     required this.command,

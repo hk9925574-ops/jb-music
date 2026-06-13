@@ -4,9 +4,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:jb_music/application/bloc/music_bloc.dart';
-
 import 'package:jb_music/core/theme/rg_tokens.dart';
-import 'package:jb_music/main.dart';
 
 const _kBandLabels = ['31', '62', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
 
@@ -46,7 +44,6 @@ class _EqualizerControlsState extends State<EqualizerControls>
       duration: const Duration(milliseconds: 1800),
     )..repeat(reverse: true);
 
-    // Sync state from DSP engine
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final bloc = context.read<MusicBloc>();
       setState(() {
@@ -67,23 +64,22 @@ class _EqualizerControlsState extends State<EqualizerControls>
     final values = List<double>.from(_kPresets[name]!);
     setState(() { _bands = values; _activePreset = name; });
     for (var i = 0; i < values.length; i++) {
-      audioHandler.setEqualizerBand(i, values[i]);
+      final hwBand = i ~/ 2;
+      context.read<MusicBloc>().dspEngine.setEqualizerBandGain(hwBand, values[i]);
     }
   }
 
   void _onBandChanged(int index, double value) {
     setState(() { _bands[index] = value; _activePreset = null; });
-    audioHandler.setEqualizerBand(index, value);
+    final hwBand = (index ~/ 2).clamp(0, 4);
+    context.read<MusicBloc>().dspEngine.setEqualizerBandGain(hwBand, value);
   }
 
   Future<void> _toggleBassBoost() async {
     final newVal = !_bassBoostOn;
     setState(() => _bassBoostOn = newVal);
     await context.read<MusicBloc>().dspEngine.setBassBoost(newVal);
-    if (newVal) {
-      // Bass boost preset overrides EQ UI display
-      setState(() { _activePreset = null; });
-    }
+    if (newVal) setState(() => _activePreset = null);
   }
 
   Future<void> _toggleVocalClear() async {
@@ -122,11 +118,13 @@ class _EqualizerControlsState extends State<EqualizerControls>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Handle
                 const SizedBox(height: 12),
                 Container(
                   width: 36, height: 4,
-                  decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
                 const SizedBox(height: 16),
 
@@ -137,22 +135,37 @@ class _EqualizerControlsState extends State<EqualizerControls>
                     children: [
                       AnimatedBuilder(
                         animation: _glowCtrl,
-                        builder: (_, __) => Icon(Icons.equalizer_rounded,
-                            color: Color.lerp(RG.cyan, RG.pink, _glowCtrl.value), size: 22),
+                        builder: (_, __) => Icon(
+                          Icons.equalizer_rounded,
+                          color: Color.lerp(RG.cyan, RG.pink, _glowCtrl.value),
+                          size: 22,
+                        ),
                       ),
                       const SizedBox(width: 10),
-                      const Text('SOUND STUDIO',
-                          style: TextStyle(color: Colors.white, fontSize: 15,
-                              fontWeight: FontWeight.w800, letterSpacing: 2.0)),
+                      const Text(
+                        'SOUND STUDIO',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 2.0,
+                        ),
+                      ),
                       const Spacer(),
                       if (_activePreset == null)
-                        const _NeonChip(label: 'CUSTOM', active: true, activeColor: RG.pink, onTap: null),
+                        const _NeonChip(
+                          label: 'CUSTOM',
+                          active: true,
+                          // FIX: was activeThumbColor (invalid) → activeColor
+                          activeColor: RG.pink,
+                          onTap: null,
+                        ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 16),
 
-                // ── Quick Effects Row ─────────────────────────────────────
+                // Quick Effects Row
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Row(
@@ -203,6 +216,7 @@ class _EqualizerControlsState extends State<EqualizerControls>
                         child: _NeonChip(
                           label: name.toUpperCase(),
                           active: _activePreset == name,
+                          // FIX: was activeThumbColor (invalid) → activeColor
                           activeColor: RG.cyan,
                           onTap: () => _applyPreset(name),
                         ),
@@ -237,10 +251,22 @@ class _EqualizerControlsState extends State<EqualizerControls>
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('+10 dB',
-                          style: TextStyle(color: RG.cyan.withValues(alpha: 0.5), fontSize: 9, letterSpacing: 0.5)),
-                      const Text('0 dB', style: TextStyle(color: Colors.white24, fontSize: 9, letterSpacing: 0.5)),
-                      const Text('-10 dB', style: TextStyle(color: Colors.white24, fontSize: 9, letterSpacing: 0.5)),
+                      Text(
+                        '+10 dB',
+                        style: TextStyle(
+                          color: RG.cyan.withValues(alpha: 0.5),
+                          fontSize: 9,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      const Text(
+                        '0 dB',
+                        style: TextStyle(color: Colors.white24, fontSize: 9, letterSpacing: 0.5),
+                      ),
+                      const Text(
+                        '-10 dB',
+                        style: TextStyle(color: Colors.white24, fontSize: 9, letterSpacing: 0.5),
+                      ),
                     ],
                   ),
                 ),
@@ -263,8 +289,11 @@ class _EffectToggle extends StatelessWidget {
   final VoidCallback onToggle;
 
   const _EffectToggle({
-    required this.icon, required this.label, required this.isOn,
-    required this.color, required this.onToggle,
+    required this.icon,
+    required this.label,
+    required this.isOn,
+    required this.color,
+    required this.onToggle,
   });
 
   @override
@@ -281,7 +310,9 @@ class _EffectToggle extends StatelessWidget {
             color: isOn ? color.withValues(alpha: 0.7) : Colors.white.withValues(alpha: 0.1),
             width: isOn ? 1.5 : 1.0,
           ),
-          boxShadow: isOn ? [BoxShadow(color: color.withValues(alpha: 0.3), blurRadius: 12)] : null,
+          boxShadow: isOn
+              ? [BoxShadow(color: color.withValues(alpha: 0.3), blurRadius: 12)]
+              : null,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -292,7 +323,8 @@ class _EffectToggle extends StatelessWidget {
               label,
               style: TextStyle(
                 color: isOn ? color : Colors.white38,
-                fontSize: 10, fontWeight: FontWeight.w700,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
               ),
               textAlign: TextAlign.center,
             ),
@@ -318,7 +350,12 @@ class _BandSlider extends StatelessWidget {
   final Color color;
   final ValueChanged<double> onChanged;
 
-  const _BandSlider({required this.label, required this.value, required this.color, required this.onChanged});
+  const _BandSlider({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -328,7 +365,8 @@ class _BandSlider extends StatelessWidget {
           value == 0 ? '0' : '${value > 0 ? '+' : ''}${value.toStringAsFixed(0)}',
           style: TextStyle(
             color: value.abs() > 0.5 ? color : Colors.white24,
-            fontSize: 9, fontWeight: FontWeight.w700,
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(height: 4),
@@ -345,12 +383,24 @@ class _BandSlider extends StatelessWidget {
                 thumbColor: Colors.white,
                 overlayColor: color.withValues(alpha: 0.2),
               ),
-              child: Slider(value: value, min: -10.0, max: 10.0, onChanged: onChanged),
+              child: Slider(
+                value: value,
+                min: -10.0,
+                max: 10.0,
+                onChanged: onChanged,
+              ),
             ),
           ),
         ),
         const SizedBox(height: 4),
-        Text(label, style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 9, letterSpacing: 0.3)),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.4),
+            fontSize: 9,
+            letterSpacing: 0.3,
+          ),
+        ),
       ],
     );
   }
@@ -363,7 +413,12 @@ class _NeonChip extends StatelessWidget {
   final Color activeColor;
   final VoidCallback? onTap;
 
-  const _NeonChip({required this.label, required this.active, required this.activeColor, required this.onTap});
+  const _NeonChip({
+    required this.label,
+    required this.active,
+    required this.activeColor,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -374,17 +429,25 @@ class _NeonChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(10),
-          color: active ? activeColor.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.05),
+          color: active
+              ? activeColor.withValues(alpha: 0.15)
+              : Colors.white.withValues(alpha: 0.05),
           border: Border.all(
-            color: active ? activeColor.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.1),
+            color: active
+                ? activeColor.withValues(alpha: 0.6)
+                : Colors.white.withValues(alpha: 0.1),
           ),
-          boxShadow: active ? [BoxShadow(color: activeColor.withValues(alpha: 0.25), blurRadius: 8)] : null,
+          boxShadow: active
+              ? [BoxShadow(color: activeColor.withValues(alpha: 0.25), blurRadius: 8)]
+              : null,
         ),
         child: Text(
           label,
           style: TextStyle(
             color: active ? activeColor : Colors.white38,
-            fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.8,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.8,
           ),
         ),
       ),

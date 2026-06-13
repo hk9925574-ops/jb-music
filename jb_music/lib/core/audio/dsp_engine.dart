@@ -7,7 +7,8 @@ import 'package:just_audio/just_audio.dart';
 import 'package:flutter/material.dart';
 
 // ── EQ Preset definitions ─────────────────────────────────────────────────────
-enum EqPreset { flat, bass, treble, vocal, pop, rock, classical, electronic, hip_hop }
+// FIX: renamed hip_hop → hipHop to follow lowerCamelCase convention
+enum EqPreset { flat, bass, treble, vocal, pop, rock, classical, electronic, hipHop }
 
 extension EqPresetLabel on EqPreset {
   String get label => switch (this) {
@@ -19,11 +20,9 @@ extension EqPresetLabel on EqPreset {
         EqPreset.rock       => 'Rock',
         EqPreset.classical  => 'Classical',
         EqPreset.electronic => 'Electronic',
-        EqPreset.hip_hop    => 'Hip-Hop',
+        EqPreset.hipHop     => 'Hip-Hop',
       };
 
-  // FIX: Use real Icons.* constants (IconData) instead of custom _Icon class.
-  // _Icon was not IconData, causing "Type 'IconData' not found" at the return type.
   IconData get icon => switch (this) {
         EqPreset.flat       => Icons.tune,
         EqPreset.bass       => Icons.speaker,
@@ -33,7 +32,7 @@ extension EqPresetLabel on EqPreset {
         EqPreset.rock       => Icons.electric_bolt,
         EqPreset.classical  => Icons.piano,
         EqPreset.electronic => Icons.sync,
-        EqPreset.hip_hop    => Icons.graphic_eq,
+        EqPreset.hipHop     => Icons.graphic_eq,
       };
 
   /// 5-band gains dB: [60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz]
@@ -46,7 +45,7 @@ extension EqPresetLabel on EqPreset {
         EqPreset.rock       => [6.0,  4.0, -1.0,  4.0,  6.0],
         EqPreset.classical  => [5.0,  3.0, -1.0,  0.0,  4.0],
         EqPreset.electronic => [8.0,  5.0,  0.0, -2.0,  6.0],
-        EqPreset.hip_hop    => [8.0,  6.0,  2.0,  0.0, -1.0],
+        EqPreset.hipHop     => [8.0,  6.0,  2.0,  0.0, -1.0],
       };
 }
 
@@ -75,10 +74,10 @@ class JBDspEngine {
 
   bool _isInitialized = false;
 
-  // 8D audio panning state
-  Timer? _8dTimer;
-  double _8dAngle = 0.0;
-  static const double _8dSpeed = 0.08;
+  // FIX: renamed _8d* variables to eightD* to follow lowerCamelCase convention
+  Timer? _eightDTimer;
+  double _eightDAngle = 0.0;
+  static const double _eightDSpeed = 0.08;
 
   JBDspEngine() {
     _initializeHardwarePipeline();
@@ -211,23 +210,24 @@ class JBDspEngine {
   }
 
   void _start8DLoop() {
-    _8dTimer?.cancel();
-    _8dAngle = 0.0;
-    _8dTimer = Timer.periodic(const Duration(milliseconds: 80), (_) {
-      _8dAngle += _8dSpeed;
-      if (_8dAngle > 2 * math.pi) _8dAngle -= 2 * math.pi;
-      _apply8DFrame(_8dAngle);
+    _eightDTimer?.cancel();
+    _eightDAngle = 0.0;
+    _eightDTimer = Timer.periodic(const Duration(milliseconds: 80), (_) {
+      _eightDAngle += _eightDSpeed;
+      if (_eightDAngle > 2 * math.pi) _eightDAngle -= 2 * math.pi;
+      _apply8DFrame(_eightDAngle);
     });
   }
 
   void _stop8DLoop() {
-    _8dTimer?.cancel();
-    _8dTimer = null;
+    _eightDTimer?.cancel();
+    _eightDTimer = null;
   }
 
   Future<void> _apply8DFrame(double angle) async {
     if (!_is8DEnabled) return;
-    final volumeDepth = 0.12;
+    // FIX: changed final → const since this is a constant value
+    const volumeDepth = 0.12;
     final volume = 1.0 - volumeDepth * (1 - math.cos(angle));
     await _audioPlayer.setVolume(volume.clamp(0.1, 1.0));
     if (_isInitialized && _equalizer != null) {

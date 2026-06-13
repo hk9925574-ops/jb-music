@@ -50,7 +50,7 @@ class StatsScreen extends StatelessWidget {
               decoration: BoxDecoration(
                 color: RGTokens.surface,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: RGTokens.gold.withOpacity(0.2)),
+                border: Border.all(color: RGTokens.gold.withValues(alpha: 0.2)),
               ),
               child: Column(
                 children: [
@@ -102,7 +102,7 @@ class StatsScreen extends StatelessWidget {
                       ),
                       Text(
                         '${stat.playCount} plays',
-                        style: TextStyle(color: RGTokens.gold.withOpacity(0.7), fontSize: 12),
+                        style: TextStyle(color: RGTokens.gold.withValues(alpha: 0.7), fontSize: 12),
                       ),
                     ],
                   ),
@@ -120,9 +120,9 @@ class StatsScreen extends StatelessWidget {
                 children: artists.entries.map((e) => Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(
-                    color: RGTokens.gold.withOpacity(0.1),
+                    color: RGTokens.gold.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: RGTokens.gold.withOpacity(0.3)),
+                    border: Border.all(color: RGTokens.gold.withValues(alpha: 0.3)),
                   ),
                   child: Text(
                     '${e.key}  ${e.value}',
@@ -146,12 +146,12 @@ class StatsScreen extends StatelessWidget {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: m.achieved
-                      ? RGTokens.gold.withOpacity(0.12)
+                      ? RGTokens.gold.withValues(alpha: 0.12)
                       : RGTokens.surface,
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
                     color: m.achieved
-                        ? RGTokens.gold.withOpacity(0.4)
+                        ? RGTokens.gold.withValues(alpha: 0.4)
                         : Colors.white12,
                   ),
                 ),
@@ -194,7 +194,7 @@ class StatsScreen extends StatelessWidget {
         decoration: BoxDecoration(
           color: RGTokens.surface,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: RGTokens.gold.withOpacity(0.2)),
+          border: Border.all(color: RGTokens.gold.withValues(alpha: 0.2)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

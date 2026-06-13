@@ -138,7 +138,6 @@ class _LibraryScreenState extends State<LibraryScreen>
                       _heroBtn(Icons.shuffle, 'Shuffle', () {
                         if (likedTracks.isEmpty) return;
                         context.read<MusicBloc>().add(PlayTrackEvent(index: 0, tracks: likedTracks));
-                        
                       }),
                       const SizedBox(width: 12),
                       _heroBtn(Icons.play_arrow, 'Play', () {
@@ -313,7 +312,7 @@ class _LibraryScreenState extends State<LibraryScreen>
           ),
           title: Text(album.key,
               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-          subtitle: Text('$artist',
+          subtitle: Text(artist,  // FIX: removed unnecessary string interpolation
               style: const TextStyle(color: Colors.white54, fontSize: 12)),
           trailing: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -405,7 +404,6 @@ class _PlaylistSheet extends StatefulWidget {
 }
 
 class _PlaylistSheetState extends State<_PlaylistSheet> {
-  // Playlists stored locally; name → list of songs
   final List<Map<String, dynamic>> _playlists = [];
   bool _creating = false;
   int? _editingIndex;
@@ -413,14 +411,15 @@ class _PlaylistSheetState extends State<_PlaylistSheet> {
   bool _smart = false;
 
   void _create() {
-    if (_nameCtrl.text.trim().isEmpty) return;
+    final name = _nameCtrl.text.trim();
+    if (name.isEmpty) return;
     setState(() {
-      _playlists.add({'name': _nameCtrl.text.trim(), 'songs': <JBSong>[], 'smart': _smart});
+      _playlists.add({'name': name, 'songs': <JBSong>[], 'smart': _smart});
       _nameCtrl.clear();
       _smart = false;
       _creating = false;
     });
-    context.read<MusicBloc>().add(CreatePlaylistEvent(_nameCtrl.text.trim()));
+    context.read<MusicBloc>().add(CreatePlaylistEvent(name));
   }
 
   void _saveEdit(int i) {

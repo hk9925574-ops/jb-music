@@ -104,6 +104,7 @@ class VoskVoiceEngine {
         }
       });
 
+      // FIX: use SpeechListenOptions instead of deprecated named params
       await _speech.listen(
         onResult: (result) {
           if (!result.finalResult) return;
@@ -126,12 +127,14 @@ class VoskVoiceEngine {
             debugPrint('❓ No intent matched for: "$text"');
           }
         },
-        listenFor: const Duration(seconds: 30),
-        pauseFor: const Duration(milliseconds: 500),
-        partialResults: false,
-        cancelOnError: false,
-        // FIX: use search mode — optimised for short commands, not long dictation
-        listenMode: stt.ListenMode.search,
+        listenOptions: stt.SpeechListenOptions(
+          listenFor: const Duration(seconds: 30),
+          pauseFor: const Duration(milliseconds: 500),
+          partialResults: false,
+          cancelOnError: false,
+          // FIX: use search mode — optimised for short commands, not long dictation
+          listenMode: stt.ListenMode.search,
+        ),
       );
     } catch (e) {
       debugPrint('❌ Session error: $e');
@@ -195,10 +198,7 @@ class VoskVoiceEngine {
 
     final timerMatch = timerRegex.firstMatch(cleaned);
     if (timerMatch != null) {
-      final mins = timerMatch.group(5) != null
-          ? timerMatch.group(4) ?? '30'
-          : '30';
-      // Re-extract the number more reliably
+      // Extract the number from the utterance
       final numMatch = RegExp(r'(\d+)').firstMatch(cleaned);
       final finalMins = numMatch?.group(1) ?? '30';
       return VoiceCommandIntent(

@@ -261,39 +261,55 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
           _AssistantBackground(orbCtrl: _orbCtrl, orbState: _orbState),
 
           SafeArea(
-            child: Column(
-              children: [
-                // ── Header ────────────────────────────────────────────────
-                const _AssistantHeader().animate().fadeIn(duration: 500.ms),
+            // Don't consume bottom inset — the nav bar / mini-player in
+            // MainNavigationScreen already sit above the system bar.
+            // We'll add our own bottom padding via MediaQuery so the quick
+            // commands row clears the nav stack perfectly.
+            bottom: false,
+            child: Builder(
+              builder: (context) {
+                // Height of the bottom nav stack:
+                //   nav bar  ≈ 58 dp
+                //   mini player ≈ 72 dp (margin + content)
+                //   system bottom inset (gesture nav / home indicator)
+                final sysPad = MediaQuery.of(context).padding.bottom;
+                final bottomPad = sysPad + 58 + 72;
+                return Column(
+                  children: [
+                    // ── Header ──────────────────────────────────────────
+                    const _AssistantHeader().animate().fadeIn(duration: 500.ms),
 
-                // ── Orb ───────────────────────────────────────────────────
-                _OrbSection(
-                  orbCtrl: _orbCtrl,
-                  pulseCtrl: _pulseCtrl,
-                  rippleCtrl: _rippleCtrl,
-                  orbState: _orbState,
-                  micActive: _micActive,
-                  liveTranscript: _liveTranscript,
-                  onMicTap: _toggleMic,
-                ).animate().fadeIn(duration: 600.ms, delay: 100.ms),
+                    // ── Orb ─────────────────────────────────────────────
+                    _OrbSection(
+                      orbCtrl: _orbCtrl,
+                      pulseCtrl: _pulseCtrl,
+                      rippleCtrl: _rippleCtrl,
+                      orbState: _orbState,
+                      micActive: _micActive,
+                      liveTranscript: _liveTranscript,
+                      onMicTap: _toggleMic,
+                    ).animate().fadeIn(duration: 600.ms, delay: 100.ms),
 
-                // ── Chat history ─────────────────────────────────────────
-                Expanded(
-                  child: _ChatHistory(
-                    messages: _messages,
-                    scrollCtrl: _scrollCtrl,
-                  ),
-                ),
+                    // ── Chat history ─────────────────────────────────────
+                    Expanded(
+                      child: _ChatHistory(
+                        messages: _messages,
+                        scrollCtrl: _scrollCtrl,
+                      ),
+                    ),
 
-                // ── Quick commands ────────────────────────────────────────
-                _QuickCommandRow(
-                  commands: _quickCmds,
-                  onTap: _sendQuickCmd,
-                ).animate().slideY(begin: 0.3, end: 0, duration: 500.ms, delay: 200.ms)
-                  .fadeIn(duration: 400.ms),
+                    // ── Quick commands ────────────────────────────────────
+                    _QuickCommandRow(
+                      commands: _quickCmds,
+                      onTap: _sendQuickCmd,
+                    ).animate().slideY(begin: 0.3, end: 0, duration: 500.ms, delay: 200.ms)
+                      .fadeIn(duration: 400.ms),
 
-                const SizedBox(height: 8),
-              ],
+                    // Spacer that pushes content above the floating nav stack
+                    SizedBox(height: bottomPad),
+                  ],
+                );
+              },
             ),
           ),
         ],

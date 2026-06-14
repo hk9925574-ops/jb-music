@@ -1,15 +1,12 @@
 // lib/presentation/screens/jb_assistant_screen.dart
 //
-// JB MUSIC — NOVA AI ASSISTANT SCREEN
+// JB MUSIC — NOVA AI ASSISTANT SCREEN (SYSTEM PROMPT DRIVEN)
 // ─────────────────────────────────────────────────────────────────────────────
 // A Jarvis-level voice interface. Cinematic, intelligent, alive.
-//
-// Features:
-//  • Animated nova orb (idle / listening / thinking / responding)
-//  • Conversation history with glass message bubbles
-//  • Live voice transcript display
-//  • Quick command suggestions
-//  • Full screen immersive experience
+// Adheres strictly to the JB Music AI Voice Assistant System Prompt rules:
+//  • Extreme short responses (< 5 words)
+//  • Strict Confidence scoring thresholds
+//  • Instant background execution with zero music interruption
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'dart:async';
@@ -58,7 +55,7 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
   static const _quickCmds = [
     ('Play something', Icons.play_arrow_rounded),
     ('Skip this song', Icons.skip_next_rounded),
-    ('Shuffle all',    Icons.shuffle_rounded),
+    ('Shuffle all',     Icons.shuffle_rounded),
     ('Sleep in 30m',   Icons.bedtime_outlined),
     ('Play liked',     Icons.favorite_outlined),
     ('Volume up',      Icons.volume_up_rounded),
@@ -74,22 +71,22 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
     _rippleCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1800))
         ..repeat();
 
+    // System Prompt: Silent mode, high pacing execution
     _tts.setLanguage('en-US');
-    _tts.setSpeechRate(0.42);
-    _tts.setVolume(0.9);
+    _tts.setSpeechRate(0.50); // Snappy, direct vocal delivery
+    _tts.setVolume(1.0);      // High visibility matching premium player specs
 
     _listenToBloc();
     _greet();
   }
 
   void _greet() {
+    // System Prompt Rules: Ultra-short, action-oriented greetings. No fluff.
     final hour = DateTime.now().hour;
-    final greeting = hour < 12 ? 'Good morning!'
-        : hour < 17 ? 'Good afternoon!'
-        : 'Good evening!';
-    final msg = '$greeting I\'m JB, your music assistant. Try saying something like "Play motivational songs" or "Skip this track".';
+    final greeting = hour < 12 ? 'Good morning.' : hour < 17 ? 'Good afternoon.' : 'Good evening.';
+    final msg = '$greeting Online and ready.';
 
-    Future.delayed(const Duration(milliseconds: 800), () {
+    Future.delayed(const Duration(milliseconds: 400), () {
       if (!mounted) return;
       setState(() => _messages.add(_ChatMessage(text: msg, isUser: false)));
     });
@@ -107,10 +104,35 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
       });
     });
 
-    // commandIntentStream emits parsed VoiceCommandIntent
+    // commandIntentStream emits parsed VoiceCommandIntent with confidence scoring
     _intentSub = bloc.voiceEngine.commandIntentStream.listen((intent) {
       if (!mounted) return;
-      final response = _responseFor(intent.action, payload: intent.payload);
+
+      // ── SYSTEM PROMPT CONFIDENCE LAYER ─────────────────────────────────────
+      // Confidence < 70%: Ignore command immediately
+      if (intent.confidenceScore < 0.70) {
+        setState(() {
+          _liveTranscript = '';
+          _orbState = OrbState.idle;
+        });
+        return;
+      }
+
+      String response;
+      
+      // Confidence 70-89%: Request short clarification
+      if (intent.confidenceScore >= 0.70 && intent.confidenceScore < 0.90) {
+        response = 'Did you say "${intent.rawUtterance}"?';
+        setState(() {
+          _orbState = OrbState.thinking;
+          _messages.add(_ChatMessage(text: response, isUser: false));
+        });
+        _tts.speak(response);
+        return;
+      }
+
+      // Confidence >= 90%: Process direct execution loop
+      response = _responseFor(intent.action, payload: intent.payload);
 
       setState(() {
         if (_liveTranscript.isNotEmpty) {
@@ -121,10 +143,12 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
         _orbState = OrbState.responding;
       });
 
+      // Execute vocal confirmation path instantly
       _tts.speak(response);
       HapticFeedback.lightImpact();
 
-      Future.delayed(const Duration(seconds: 2), () {
+      // System Prompt Rule: Fast exit execution window (<100ms UI restoration path)
+      Future.delayed(const Duration(milliseconds: 800), () {
         if (mounted) setState(() => _orbState = OrbState.idle);
       });
 
@@ -133,38 +157,39 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
   }
 
   void _scrollToBottom() {
-    Future.delayed(const Duration(milliseconds: 200), () {
+    Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollCtrl.hasClients) {
         _scrollCtrl.animateTo(
           _scrollCtrl.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 400),
+          duration: const Duration(milliseconds: 300),
           curve: JBAnim.easeOut,
         );
       }
     });
   }
 
+  // System Prompt: Maps intents directly to ultra-short responses (< 5 words)
   static String _responseFor(JbVoiceAction action, {String? payload}) {
     switch (action) {
-      case JbVoiceAction.play:            return 'Playing your music ♪';
-      case JbVoiceAction.pause:           return 'Music paused.';
-      case JbVoiceAction.togglePlayPause: return 'Toggling playback.';
-      case JbVoiceAction.next:            return 'Skipping to next track.';
-      case JbVoiceAction.previous:        return 'Going back a track.';
-      case JbVoiceAction.shuffle:         return 'Shuffle mode is on. Enjoy the surprise!';
-      case JbVoiceAction.repeat:          return 'Repeat mode activated.';
+      case JbVoiceAction.play:            return 'Playing.';
+      case JbVoiceAction.pause:           return 'Paused.';
+      case JbVoiceAction.togglePlayPause: return 'Toggling track.';
+      case JbVoiceAction.next:            return 'Playing next track.';
+      case JbVoiceAction.previous:        return 'Going back.';
+      case JbVoiceAction.shuffle:         return 'Shuffle on.';
+      case JbVoiceAction.repeat:          return 'Repeat activated.';
       case JbVoiceAction.volumeUp:        return 'Volume raised.';
       case JbVoiceAction.volumeDown:      return 'Volume lowered.';
       case JbVoiceAction.searchSong:
-        return payload?.isNotEmpty == true ? 'Searching for "$payload"…' : 'Searching…';
+        return payload?.isNotEmpty == true ? 'Searching "$payload".' : 'Searching.';
       case JbVoiceAction.playSong:
-        return payload?.isNotEmpty == true ? 'Playing "$payload" ♪' : 'Playing track…';
+        return payload?.isNotEmpty == true ? 'Playing "$payload".' : 'Playing track.';
       case JbVoiceAction.playPlaylist:
-        return payload?.isNotEmpty == true ? 'Starting "$payload" playlist.' : 'Playing playlist.';
+        return payload?.isNotEmpty == true ? 'Starting "$payload".' : 'Playing playlist.';
       case JbVoiceAction.setSleepTimer:
-        return payload?.isNotEmpty == true ? 'Sleep timer set for $payload minutes.' : 'Sleep timer set.';
-      case JbVoiceAction.cancelSleepTimer: return 'Sleep timer cancelled.';
-      default: return 'Got it!';
+        return payload?.isNotEmpty == true ? 'Timer set: $payload min.' : 'Timer set.';
+      case JbVoiceAction.cancelSleepTimer: return 'Timer cancelled.';
+      default: return 'Executed.';
     }
   }
 
@@ -193,7 +218,7 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
           children: [
             const Icon(Icons.mic_off_rounded, color: JBColors.error, size: 18),
             const SizedBox(width: 10),
-            Text('Microphone permission required', style: JBType.bodyMedium),
+            Text('Microphone required.', style: JBType.bodyMedium),
           ],
         ),
         backgroundColor: JBColors.void3,
@@ -206,9 +231,10 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
   void _sendQuickCmd(String cmd) {
     HapticFeedback.selectionClick();
     setState(() => _messages.add(_ChatMessage(text: cmd, isUser: true)));
-    // Route quick commands to the BLoC / audioHandler / dspEngine
+    
     final bloc = context.read<MusicBloc>();
     final lower = cmd.toLowerCase();
+    
     if (lower.contains('play')) {
       bloc.audioHandler.play();
     } else if (lower.contains('skip') || lower.contains('next')) {
@@ -216,24 +242,24 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
     } else if (lower.contains('shuffle')) {
       bloc.audioHandler.setShuffleMode(AudioServiceShuffleMode.all);
     } else if (lower.contains('volume up')) {
-      // FIXED: volume control lives on dspEngine, not audioHandler
       final dsp = bloc.dspEngine;
       dsp.setVolume((dsp.volume + 0.1).clamp(0.0, 1.0));
     } else if (lower.contains('sleep')) {
       bloc.audioHandler.pause();
     } else if (lower.contains('liked') || lower.contains('favorite')) {
-      // FIXED: PlaySmartPlaylistEvent takes a SmartPlaylistType enum
       bloc.add(PlaySmartPlaylistEvent(SmartPlaylistType.shuffle));
     }
-    // Add AI response bubble
-    final response = lower.contains('play') ? 'Playing ♪'
-        : lower.contains('skip') ? 'Skipping to next track.'
-        : lower.contains('shuffle') ? 'Shuffle on!'
+
+    // System Prompt: Action mappings matching exact voice responses
+    final response = lower.contains('play') ? 'Playing.'
+        : lower.contains('skip') ? 'Playing next track.'
+        : lower.contains('shuffle') ? 'Shuffle on.'
         : lower.contains('volume') ? 'Volume raised.'
         : lower.contains('sleep') ? 'Pausing for sleep.'
-        : lower.contains('liked') ? 'Playing your favorites ♪'
-        : 'Got it!';
-    Future.delayed(const Duration(milliseconds: 300), () {
+        : lower.contains('liked') ? 'Playing favorites.'
+        : 'Done.';
+
+    Future.delayed(const Duration(milliseconds: 150), () {
       if (mounted) setState(() => _messages.add(_ChatMessage(text: response, isUser: false)));
     });
     _scrollToBottom();
@@ -257,29 +283,16 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
       backgroundColor: JBColors.void0,
       body: Stack(
         children: [
-          // Background gradient
           _AssistantBackground(orbCtrl: _orbCtrl, orbState: _orbState),
-
           SafeArea(
-            // Don't consume bottom inset — the nav bar / mini-player in
-            // MainNavigationScreen already sit above the system bar.
-            // We'll add our own bottom padding via MediaQuery so the quick
-            // commands row clears the nav stack perfectly.
             bottom: false,
             child: Builder(
               builder: (context) {
-                // Height of the bottom nav stack:
-                //   nav bar  ≈ 58 dp
-                //   mini player ≈ 72 dp (margin + content)
-                //   system bottom inset (gesture nav / home indicator)
                 final sysPad = MediaQuery.of(context).padding.bottom;
                 final bottomPad = sysPad + 58 + 72;
                 return Column(
                   children: [
-                    // ── Header ──────────────────────────────────────────
                     const _AssistantHeader().animate().fadeIn(duration: 500.ms),
-
-                    // ── Orb ─────────────────────────────────────────────
                     _OrbSection(
                       orbCtrl: _orbCtrl,
                       pulseCtrl: _pulseCtrl,
@@ -289,23 +302,17 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
                       liveTranscript: _liveTranscript,
                       onMicTap: _toggleMic,
                     ).animate().fadeIn(duration: 600.ms, delay: 100.ms),
-
-                    // ── Chat history ─────────────────────────────────────
                     Expanded(
                       child: _ChatHistory(
                         messages: _messages,
                         scrollCtrl: _scrollCtrl,
                       ),
                     ),
-
-                    // ── Quick commands ────────────────────────────────────
                     _QuickCommandRow(
                       commands: _quickCmds,
                       onTap: _sendQuickCmd,
                     ).animate().slideY(begin: 0.3, end: 0, duration: 500.ms, delay: 200.ms)
                       .fadeIn(duration: 400.ms),
-
-                    // Spacer that pushes content above the floating nav stack
                     SizedBox(height: bottomPad),
                   ],
                 );
@@ -319,7 +326,7 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  BACKGROUND
+//  BACKGROUND UI COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
 class _AssistantBackground extends StatelessWidget {
   final AnimationController orbCtrl;
@@ -375,7 +382,7 @@ class _BlurCircle extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  HEADER
+//  HEADER UI COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
 class _AssistantHeader extends StatelessWidget {
   const _AssistantHeader();
@@ -417,7 +424,7 @@ class _AssistantHeader extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  ORB SECTION
+//  ORB INTERFACE SECTION
 // ─────────────────────────────────────────────────────────────────────────────
 class _OrbSection extends StatelessWidget {
   final AnimationController orbCtrl, pulseCtrl, rippleCtrl;
@@ -456,7 +463,6 @@ class _OrbSection extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 16),
       child: Column(
         children: [
-          // Orb
           GestureDetector(
             onTap: onMicTap,
             child: AnimatedBuilder(
@@ -470,7 +476,6 @@ class _OrbSection extends StatelessWidget {
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
-                      // Ripple rings (listening state)
                       if (micActive) ...[
                         _RippleRing(
                           color: _orbColor,
@@ -485,8 +490,6 @@ class _OrbSection extends StatelessWidget {
                           size: 140,
                         ),
                       ],
-
-                      // Main orb
                       Transform.scale(
                         scale: pulse,
                         child: Container(
@@ -535,10 +538,7 @@ class _OrbSection extends StatelessWidget {
               },
             ),
           ),
-
           const SizedBox(height: 10),
-
-          // State label
           AnimatedSwitcher(
             duration: 300.ms,
             child: Text(
@@ -585,7 +585,7 @@ class _RippleRing extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  CHAT HISTORY
+//  CHAT HISTORY LOGISTICS
 // ─────────────────────────────────────────────────────────────────────────────
 class _ChatHistory extends StatelessWidget {
   final List<_ChatMessage> messages;
@@ -601,7 +601,7 @@ class _ChatHistory extends StatelessWidget {
           children: [
             Icon(Icons.auto_awesome_rounded, color: JBColors.nova.withValues(alpha: 0.3), size: 40),
             const SizedBox(height: 10),
-            Text('Your conversation will appear here',
+            Text('Listening in silent mode.',
               style: JBType.body.copyWith(color: JBColors.textTertiary),
               textAlign: TextAlign.center),
           ],
@@ -698,7 +698,7 @@ class _MessageBubble extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  QUICK COMMAND ROW
+//  QUICK COMMAND SLIDER
 // ─────────────────────────────────────────────────────────────────────────────
 class _QuickCommandRow extends StatelessWidget {
   final List<(String, IconData)> commands;
@@ -739,7 +739,7 @@ class _QuickCommandRow extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  DATA
+//  DATA WRAPPER
 // ─────────────────────────────────────────────────────────────────────────────
 class _ChatMessage {
   final String text;

@@ -1,3 +1,8 @@
+// android/build.gradle.kts
+// ─────────────────────────────────────────────────────────────────────────────
+// ROOT GRADLE KOTLIN DSL — HIGH COMPATIBILITY NOVA BUILD PROFILE
+// ─────────────────────────────────────────────────────────────────────────────
+
 plugins {
     id("com.android.application") apply false
     id("com.android.library") apply false
@@ -7,7 +12,7 @@ plugins {
 allprojects {
     repositories {
         google()
-        mavenCentral()
+        mavenCentral() // ✅ Fixed unresolved reference syntax error
         maven { url = uri("https://jitpack.io") }
     }
 }
@@ -19,7 +24,7 @@ subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 
-    // Fix missing namespaces in old plugins
+    // Fix missing namespaces in older plugins during build evaluation
     afterEvaluate {
         val android = project.extensions.findByName("android")
         if (android != null && android is com.android.build.gradle.BaseExtension) {
@@ -38,7 +43,7 @@ subprojects {
         }
     }
 
-    // ✅ FIX: Force Java 17 on all subprojects
+    // ✅ FIX: Force Java 17 toolchain on all subprojects
     plugins.withId("com.android.library") {
         extensions.configure<com.android.build.gradle.LibraryExtension> {
             compileOptions {

@@ -1,9 +1,18 @@
 // lib/presentation/screens/library_screen.dart
-// FIXED: No fake data — all tabs use real local songs from MusicBloc
+//
+// JB MUSIC — NOVA LIBRARY SCREEN
+// ─────────────────────────────────────────────────────────────────────────────
+// Tabs: Liked | Playlists | Albums | Artists
+// ─────────────────────────────────────────────────────────────────────────────
+
 import 'package:flutter/material.dart';
-import 'package:jb_music/core/theme/rg_tokens.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:on_audio_query/on_audio_query.dart';
+
 import 'package:jb_music/application/bloc/music_bloc.dart';
+import 'package:jb_music/core/theme/jb_design_system.dart';
 import 'package:jb_music/domain/entities/jb_song.dart';
 import 'package:jb_music/screens/player_screen.dart';
 
@@ -16,7 +25,7 @@ class LibraryScreen extends StatefulWidget {
 class _LibraryScreenState extends State<LibraryScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tab;
-  final List<String> _tabs = ['Liked', 'Recent', 'Albums', 'Artists'];
+  final _tabs = ['Liked', 'Playlists', 'Albums', 'Artists'];
 
   @override
   void initState() {
@@ -30,251 +39,126 @@ class _LibraryScreenState extends State<LibraryScreen>
     super.dispose();
   }
 
+  void _navToPlayer(BuildContext ctx, JBSong track, int index, List<JBSong> tracks) {
+    HapticFeedback.lightImpact();
+    ctx.read<MusicBloc>().add(PlayTrackEvent(index: index, tracks: tracks));
+    Navigator.of(ctx).push(JBAnim.slideUp(PlayerScreen(track: track)));
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<MusicBloc, MusicState>(
       builder: (context, state) {
-        final allTracks = state is MusicTracksLoadedState ? state.visibleTracks : <JBSong>[];
-        final likedTracks = state is MusicTracksLoadedState ? state.likedTracks : <JBSong>[];
+        final allTracks   = state is MusicTracksLoadedState ? state.visibleTracks : <JBSong>[];
+        final likedTracks = state is MusicTracksLoadedState ? state.likedTracks   : <JBSong>[];
+        final playlists   = state is MusicTracksLoadedState ? state.playlists      : <JBPlaylist>[];
 
-        // Recent = last 12 tracks
-        final recentTracks = allTracks.reversed.take(12).toList();
-
-        // Albums: group by album
         final albumMap = <String, List<JBSong>>{};
-        for (final t in allTracks) {
-          albumMap.putIfAbsent(t.album, () => []).add(t);
-        }
-        final albums = albumMap.entries.toList();
+        for (final t in allTracks) { albumMap.putIfAbsent(t.album, () => []).add(t); }
 
-        // Artists: group by artist
         final artistMap = <String, List<JBSong>>{};
-        for (final t in allTracks) {
-          artistMap.putIfAbsent(t.artist, () => []).add(t);
-        }
-        final artists = artistMap.entries.toList();
+        for (final t in allTracks) { artistMap.putIfAbsent(t.artist, () => []).add(t); }
 
         return Scaffold(
-          backgroundColor: RG.black,
+          backgroundColor: JBColors.void0,
           body: NestedScrollView(
-            headerSliverBuilder: (context, _) => [
+            headerSliverBuilder: (ctx, _) => [
               SliverAppBar(
                 floating: true,
-                backgroundColor: RG.black,
-                title: const Text('Your Library',
-                    style: TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.w800, fontSize: 22)),
-                actions: [
-                  TextButton.icon(
-                    onPressed: () => _showPlaylistSheet(context, allTracks),
-                    icon: const Icon(Icons.add, color: RG.gold, size: 18),
-                    label: const Text('Playlist',
-                        style: TextStyle(color: RG.gold, fontWeight: FontWeight.w600)),
+                backgroundColor: JBColors.void0,
+                expandedHeight: 100,
+                flexibleSpace: FlexibleSpaceBar(
+                  titlePadding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+                  title: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Your', style: JBType.caption.copyWith(color: JBColors.nova)),
+                            Text('Library', style: JBType.h2),
+                          ],
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          _showCreatePlaylistSheet(context, allTracks);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                          decoration: JBGlass.novaCard(radius: JBRadius.full),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.add_rounded, color: JBColors.nova, size: 16),
+                              const SizedBox(width: 4),
+                              Text('Playlist',
+                                style: JBType.captionMedium.copyWith(color: JBColors.nova)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-                bottom: TabBar(
-                  controller: _tab,
-                  isScrollable: true,
-                  labelColor: RG.gold,
-                  unselectedLabelColor: Colors.white54,
-                  indicatorColor: RG.gold,
-                  indicatorWeight: 2,
-                  tabs: _tabs.map((t) => Tab(text: t)).toList(),
+                ),
+                bottom: PreferredSize(
+                  preferredSize: const Size.fromHeight(44),
+                  child: Container(
+                    margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    padding: const EdgeInsets.all(3),
+                    decoration: JBGlass.card(radius: JBRadius.full),
+                    child: TabBar(
+                      controller: _tab,
+                      isScrollable: false,
+                      indicator: BoxDecoration(
+                        gradient: JBGradients.nova,
+                        borderRadius: JBRadius.pill,
+                        boxShadow: JBShadow.nova,
+                      ),
+                      labelStyle: JBType.captionMedium.copyWith(fontWeight: FontWeight.w700, fontSize: 12),
+                      unselectedLabelStyle: JBType.captionMedium.copyWith(fontSize: 12),
+                      labelColor: JBColors.void0,
+                      unselectedLabelColor: JBColors.textTertiary,
+                      dividerColor: Colors.transparent,
+                      tabs: _tabs.map((t) => Tab(text: t, height: 34)).toList(),
+                    ),
+                  ),
                 ),
               ),
             ],
             body: TabBarView(
               controller: _tab,
               children: [
-                _buildLikedSongs(context, likedTracks),
-                _buildRecent(context, recentTracks, state),
-                _buildAlbums(context, albums, state),
-                _buildArtists(context, artists, state),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  // ── LIKED SONGS (real local) ─────────────────────────────────────────────
-  Widget _buildLikedSongs(BuildContext context, List<JBSong> likedTracks) {
-    return ListView(
-      children: [
-        Container(
-          margin: const EdgeInsets.all(16),
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF450AF5), Color(0xFF8E8EE5)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Stack(
-            children: [
-              Positioned(
-                right: -20, bottom: -20,
-                child: Icon(Icons.favorite, size: 120,
-                    color: Colors.white.withValues(alpha: 0.1)),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('PLAYLIST',
-                      style: TextStyle(color: Colors.white70, fontSize: 11,
-                          fontWeight: FontWeight.w700, letterSpacing: 1.5)),
-                  const SizedBox(height: 4),
-                  const Text('Liked Songs',
-                      style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 4),
-                  Text('${likedTracks.length} songs',
-                      style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      _heroBtn(Icons.shuffle, 'Shuffle', () {
-                        if (likedTracks.isEmpty) return;
-                        context.read<MusicBloc>().add(PlayTrackEvent(index: 0, tracks: likedTracks));
-                      }),
-                      const SizedBox(width: 12),
-                      _heroBtn(Icons.play_arrow, 'Play', () {
-                        if (likedTracks.isEmpty) return;
-                        context.read<MusicBloc>().add(PlayTrackEvent(index: 0, tracks: likedTracks));
-                      }),
-                    ],
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        if (likedTracks.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(32),
-            child: Center(
-              child: Column(
-                children: [
-                  Icon(Icons.favorite_border, color: Colors.white24, size: 56),
-                  SizedBox(height: 12),
-                  Text('No liked songs yet',
-                      style: TextStyle(color: Colors.white38, fontSize: 14)),
-                  SizedBox(height: 6),
-                  Text('Tap ♥ on any song to add it here',
-                      style: TextStyle(color: Colors.white24, fontSize: 12)),
-                ],
-              ),
-            ),
-          )
-        else
-          ...likedTracks.asMap().entries.map((e) {
-            final i = e.key;
-            final song = e.value;
-            return ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-              onTap: () {
-                context.read<MusicBloc>().add(PlayTrackEvent(index: i, tracks: likedTracks));
-                Navigator.push(context, _playerRoute(context, song));
-              },
-              leading: CircleAvatar(
-                backgroundColor: RG.surface,
-                child: Text('${i + 1}',
-                    style: const TextStyle(color: Colors.white54, fontSize: 13)),
-              ),
-              title: Text(song.title,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-              subtitle: Text(song.artist,
-                  style: const TextStyle(color: Colors.white54, fontSize: 12)),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '${song.durationMs ~/ 60000}:${((song.durationMs ~/ 1000) % 60).toString().padLeft(2, '0')}',
-                    style: const TextStyle(color: Colors.white38, fontSize: 12),
-                  ),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: () => context.read<MusicBloc>().add(ToggleLikeTrackEvent(song)),
-                    child: const Icon(Icons.favorite, color: Colors.redAccent, size: 20),
-                  ),
-                ],
-              ),
-            );
-          }),
-      ],
-    );
-  }
-
-  Widget _heroBtn(IconData icon, String label, VoidCallback onTap) =>
-      GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.2),
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, color: Colors.white, size: 16),
-              const SizedBox(width: 6),
-              Text(label,
-                  style: const TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13)),
-            ],
-          ),
-        ),
-      );
-
-  // ── RECENTLY PLAYED (real) ───────────────────────────────────────────────
-  Widget _buildRecent(BuildContext context, List<JBSong> recentTracks, MusicState state) {
-    if (recentTracks.isEmpty) {
-      return const Center(
-        child: Text('No recent tracks', style: TextStyle(color: Colors.white38)),
-      );
-    }
-    return GridView.builder(
-      padding: const EdgeInsets.all(16),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 2.8),
-      itemCount: recentTracks.length,
-      itemBuilder: (_, i) {
-        final track = recentTracks[i];
-        return GestureDetector(
-          onTap: () {
-            context.read<MusicBloc>().add(PlayTrackEvent(index: i, tracks: recentTracks));
-            Navigator.push(context, _playerRoute(context, track));
-          },
-          child: Container(
-            decoration: BoxDecoration(
-              color: RG.surface, borderRadius: BorderRadius.circular(10),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 52,
-                  decoration: const BoxDecoration(
-                    color: RG.roseDeep,
-                    borderRadius: BorderRadius.horizontal(left: Radius.circular(10)),
-                  ),
-                  child: const Icon(Icons.music_note, color: Colors.white),
+                // ── LIKED ──
+                _TrackListTab(
+                  tracks: likedTracks,
+                  emptyIcon: Icons.favorite_outline_rounded,
+                  emptyTitle: 'No favorites yet',
+                  emptySubtitle: 'Tap the heart on any track to save it here.',
+                  state: state is MusicTracksLoadedState ? state : null,
+                  onTap: (track, i, tracks) => _navToPlayer(context, track, i, tracks),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(track.title,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12),
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
-                      Text(track.artist,
-                          style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                    ],
-                  ),
+
+                // ── PLAYLISTS ──
+                _PlaylistsTab(
+                  playlists: playlists,
+                  allTracks: allTracks,
+                  onTap: (track, i, tracks) => _navToPlayer(context, track, i, tracks),
+                ),
+
+                // ── ALBUMS ──
+                _AlbumsTab(
+                  albums: albumMap.entries.toList(),
+                  onTap: (track, i, tracks) => _navToPlayer(context, track, i, tracks),
+                ),
+
+                // ── ARTISTS ──
+                _ArtistsTab(
+                  artists: artistMap.entries.toList(),
+                  onTap: (track, i, tracks) => _navToPlayer(context, track, i, tracks),
                 ),
               ],
             ),
@@ -284,348 +168,675 @@ class _LibraryScreenState extends State<LibraryScreen>
     );
   }
 
-  // ── ALBUMS (real, from local metadata) ──────────────────────────────────
-  Widget _buildAlbums(BuildContext context, List<MapEntry<String, List<JBSong>>> albums, MusicState state) {
-    if (albums.isEmpty) {
-      return const Center(child: Text('No albums found', style: TextStyle(color: Colors.white38)));
-    }
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemCount: albums.length,
-      separatorBuilder: (_, __) => Divider(color: Colors.white.withValues(alpha: 0.07), height: 1),
-      itemBuilder: (_, i) {
-        final album = albums[i];
-        final songs = album.value;
-        final artist = songs.first.artist;
-        return ListTile(
-          contentPadding: const EdgeInsets.symmetric(vertical: 6),
-          onTap: () {
-            if (songs.isNotEmpty) {
-              context.read<MusicBloc>().add(PlayTrackEvent(index: 0, tracks: songs));
-              Navigator.push(context, _playerRoute(context, songs.first));
-            }
-          },
-          leading: Container(
-            width: 54, height: 54,
-            decoration: BoxDecoration(color: RG.surface, borderRadius: BorderRadius.circular(10)),
-            child: const Icon(Icons.album, color: RG.gold, size: 26),
-          ),
-          title: Text(album.key,
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-          subtitle: Text(artist,  // FIX: removed unnecessary string interpolation
-              style: const TextStyle(color: Colors.white54, fontSize: 12)),
-          trailing: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text('${songs.length} songs',
-                  style: const TextStyle(color: Colors.white38, fontSize: 11)),
-              const Icon(Icons.chevron_right, color: Colors.white38, size: 18),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  // ── ARTISTS (real) ───────────────────────────────────────────────────────
-  Widget _buildArtists(BuildContext context, List<MapEntry<String, List<JBSong>>> artists, MusicState state) {
-    if (artists.isEmpty) {
-      return const Center(child: Text('No artists found', style: TextStyle(color: Colors.white38)));
-    }
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemCount: artists.length,
-      separatorBuilder: (_, __) => Divider(color: Colors.white.withValues(alpha: 0.07), height: 1),
-      itemBuilder: (_, i) {
-        final artist = artists[i];
-        final songs = artist.value;
-        return ListTile(
-          contentPadding: const EdgeInsets.symmetric(vertical: 6),
-          onTap: () {
-            if (songs.isNotEmpty) {
-              context.read<MusicBloc>().add(PlayTrackEvent(index: 0, tracks: songs));
-              Navigator.push(context, _playerRoute(context, songs.first));
-            }
-          },
-          leading: CircleAvatar(
-            radius: 28,
-            backgroundColor: RG.roseDeep.withValues(alpha: 0.3),
-            child: Text(
-              artist.key.isNotEmpty ? artist.key[0].toUpperCase() : '?',
-              style: const TextStyle(color: RG.gold, fontWeight: FontWeight.w800, fontSize: 18),
-            ),
-          ),
-          title: Text(artist.key,
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-          subtitle: Text('${songs.length} songs',
-              style: const TextStyle(color: Colors.white54, fontSize: 12)),
-          trailing: const Icon(Icons.chevron_right, color: Colors.white38, size: 20),
-        );
-      },
-    );
-  }
-
-  // ── PLAYLIST SHEET ───────────────────────────────────────────────────────
-  void _showPlaylistSheet(BuildContext context, List<JBSong> allTracks) {
+  void _showCreatePlaylistSheet(BuildContext ctx, List<JBSong> tracks) {
     showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1a1a2e),
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      context: ctx,
+      backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => BlocProvider.value(
-        value: BlocProvider.of<MusicBloc>(context),
-        child: _PlaylistSheet(allTracks: allTracks),
-      ),
+      builder: (_) => _CreatePlaylistSheet(allTracks: tracks),
     );
   }
-
-  PageRoute _playerRoute(BuildContext context, JBSong track) => PageRouteBuilder(
-    pageBuilder: (ctx, anim, _) => BlocProvider.value(
-      value: BlocProvider.of<MusicBloc>(ctx),
-      child: PlayerScreen(track: track),
-    ),
-    transitionsBuilder: (ctx, anim, _, child) => SlideTransition(
-      position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-          .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
-      child: child,
-    ),
-    transitionDuration: const Duration(milliseconds: 400),
-  );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  TRACK LIST TAB (Liked)
+// ─────────────────────────────────────────────────────────────────────────────
+class _TrackListTab extends StatelessWidget {
+  final List<JBSong> tracks;
+  final IconData emptyIcon;
+  final String emptyTitle, emptySubtitle;
+  final MusicTracksLoadedState? state;
+  final void Function(JBSong, int, List<JBSong>) onTap;
 
-// ── PLAYLIST SHEET ────────────────────────────────────────────────────────────
-class _PlaylistSheet extends StatefulWidget {
-  final List<JBSong> allTracks;
-  const _PlaylistSheet({required this.allTracks});
-  @override
-  State<_PlaylistSheet> createState() => _PlaylistSheetState();
-}
-
-class _PlaylistSheetState extends State<_PlaylistSheet> {
-  final List<Map<String, dynamic>> _playlists = [];
-  bool _creating = false;
-  int? _editingIndex;
-  final _nameCtrl = TextEditingController();
-  bool _smart = false;
-
-  void _create() {
-    final name = _nameCtrl.text.trim();
-    if (name.isEmpty) return;
-    setState(() {
-      _playlists.add({'name': name, 'songs': <JBSong>[], 'smart': _smart});
-      _nameCtrl.clear();
-      _smart = false;
-      _creating = false;
-    });
-    context.read<MusicBloc>().add(CreatePlaylistEvent(name));
-  }
-
-  void _saveEdit(int i) {
-    if (_nameCtrl.text.trim().isEmpty) return;
-    setState(() {
-      _playlists[i]['name'] = _nameCtrl.text.trim();
-      _playlists[i]['smart'] = _smart;
-      _editingIndex = null;
-      _nameCtrl.clear();
-    });
-  }
-
-  void _delete(int i) => setState(() => _playlists.removeAt(i));
-  void _startEdit(int i) => setState(() {
-    _editingIndex = i;
-    _nameCtrl.text = _playlists[i]['name'];
-    _smart = _playlists[i]['smart'];
+  const _TrackListTab({
+    required this.tracks,
+    required this.emptyIcon,
+    required this.emptyTitle,
+    required this.emptySubtitle,
+    required this.state,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.7,
-      maxChildSize: 0.95,
-      builder: (_, ctrl) => ListView(
-        controller: ctrl,
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        children: [
-          Center(
-            child: Container(
-              width: 40, height: 4,
-              margin: const EdgeInsets.only(bottom: 16),
-              decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
-            ),
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Playlists',
-                  style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
-              IconButton(
-                icon: const Icon(Icons.close, color: Colors.white54),
-                onPressed: () => Navigator.pop(context),
+    if (tracks.isEmpty) {
+      return _EmptyState(icon: emptyIcon, title: emptyTitle, subtitle: emptySubtitle);
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+      itemCount: tracks.length,
+      itemBuilder: (_, i) {
+        final track = tracks[i];
+        final isActive = state?.currentTrackIndex == i && state?.visibleTracks == tracks;
+        final isPlaying = state?.isPlaying ?? false;
+
+        return _LibraryTrackTile(
+          track: track,
+          index: i,
+          tracks: tracks,
+          isActive: isActive,
+          isPlaying: isPlaying && isActive,
+          onTap: onTap,
+        ).animate(delay: Duration(milliseconds: i * 20)).fadeIn(duration: 350.ms).slideY(begin: 0.1);
+      },
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  LIBRARY TRACK TILE
+// ─────────────────────────────────────────────────────────────────────────────
+class _LibraryTrackTile extends StatelessWidget {
+  final JBSong track;
+  final int index;
+  final List<JBSong> tracks;
+  final bool isActive, isPlaying;
+  final void Function(JBSong, int, List<JBSong>) onTap;
+
+  const _LibraryTrackTile({
+    required this.track, required this.index, required this.tracks,
+    required this.isActive, required this.isPlaying, required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        onTap(track, index, tracks);
+      },
+      child: AnimatedContainer(
+        duration: 250.ms,
+        margin: const EdgeInsets.only(bottom: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: isActive ? JBDecor.activeCard : JBGlass.card(radius: JBRadius.md),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(JBRadius.sm),
+              child: SizedBox(
+                width: 46, height: 46,
+                child: QueryArtworkWidget(
+                  id: int.tryParse(track.id) ?? 0,
+                  type: ArtworkType.AUDIO,
+                  artworkBorder: BorderRadius.zero,
+                  artworkFit: BoxFit.cover,
+                  nullArtworkWidget: Container(
+                    color: JBColors.void4,
+                    child: Icon(Icons.music_note_rounded,
+                        color: JBColors.nova.withValues(alpha: 0.4), size: 20),
+                  ),
+                ),
               ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (_creating) _createForm() else _newPlaylistBtn(),
-          const SizedBox(height: 8),
-          ..._playlists.asMap().entries.map((e) {
-            final i = e.key;
-            final p = e.value;
-            return _editingIndex == i ? _editForm(i) : _playlistTile(p, i);
-          }),
-        ],
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(track.title,
+                    style: JBType.bodyMedium.copyWith(
+                      color: isActive ? JBColors.nova : JBColors.textPrimary,
+                      fontSize: 14,
+                    ),
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 2),
+                  Text(track.artist,
+                    style: JBType.caption, maxLines: 1, overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+            if (isPlaying)
+              const _SmallWave(color: JBColors.nova)
+            else
+              Text(_fmtDur(track.duration), style: JBType.micro),
+            const SizedBox(width: 8),
+            const Icon(Icons.more_vert_rounded, color: JBColors.textTertiary, size: 18),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _newPlaylistBtn() => GestureDetector(
-        onTap: () => setState(() => _creating = true),
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          margin: const EdgeInsets.only(bottom: 8),
-          decoration: BoxDecoration(
-            border: Border.all(color: RG.gold.withValues(alpha: 0.4)),
-            borderRadius: BorderRadius.circular(14),
-            color: RG.gold.withValues(alpha: 0.05),
+  String _fmtDur(Duration d) => '${d.inMinutes}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PLAYLISTS TAB
+// ─────────────────────────────────────────────────────────────────────────────
+class _PlaylistsTab extends StatelessWidget {
+  final List<JBPlaylist> playlists;
+  final List<JBSong> allTracks;
+  final void Function(JBSong, int, List<JBSong>) onTap;
+
+  const _PlaylistsTab({
+    required this.playlists, required this.allTracks, required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (playlists.isEmpty) {
+      return const _EmptyState(
+        icon: Icons.queue_music_rounded,
+        title: 'No playlists yet',
+        subtitle: 'Create a playlist to organise your music.',
+      );
+    }
+
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+        childAspectRatio: 0.85,
+      ),
+      itemCount: playlists.length,
+      itemBuilder: (_, i) {
+        final pl = playlists[i];
+        return GestureDetector(
+          onTap: () {
+            HapticFeedback.lightImpact();
+            if (pl.songs.isNotEmpty) onTap(pl.songs.first, 0, pl.songs);
+          },
+          child: Container(
+            decoration: JBDecor.card,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(JBRadius.lg)),
+                    child: pl.songs.isNotEmpty
+                        ? QueryArtworkWidget(
+                            id: int.tryParse(pl.songs.first.id) ?? 0,
+                            type: ArtworkType.AUDIO,
+                            artworkBorder: BorderRadius.zero,
+                            artworkFit: BoxFit.cover,
+                            nullArtworkWidget: _PlaylistArtFallback(name: pl.name),
+                          )
+                        : _PlaylistArtFallback(name: pl.name),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(pl.name,
+                        style: JBType.bodyMedium.copyWith(fontSize: 13),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                      Text('${pl.songs.length} songs', style: JBType.micro),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-          child: const Row(
-            children: [
-              Icon(Icons.add, color: RG.gold, size: 20),
-              SizedBox(width: 10),
-              Text('New Playlist', style: TextStyle(color: RG.gold, fontWeight: FontWeight.w600)),
-            ],
-          ),
-        ),
-      );
+        ).animate(delay: Duration(milliseconds: i * 40)).fadeIn(duration: 350.ms);
+      },
+    );
+  }
+}
 
-  Widget _createForm() => Container(
-        padding: const EdgeInsets.all(14),
-        margin: const EdgeInsets.only(bottom: 8),
-        decoration: BoxDecoration(color: RG.surface, borderRadius: BorderRadius.circular(14)),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: _nameCtrl,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                hintText: 'Playlist name...',
-                hintStyle: const TextStyle(color: Colors.white38),
-                filled: true, fillColor: Colors.white.withValues(alpha: 0.06),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Smart Playlist', style: TextStyle(color: Colors.white70)),
-                Switch(value: _smart, onChanged: (v) => setState(() => _smart = v), activeThumbColor: RG.gold),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: RG.gold, foregroundColor: Colors.black),
-                    onPressed: _create, child: const Text('Create'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(foregroundColor: Colors.white70, side: const BorderSide(color: Colors.white24)),
-                    onPressed: () => setState(() => _creating = false), child: const Text('Cancel'),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      );
+class _PlaylistArtFallback extends StatelessWidget {
+  final String name;
+  const _PlaylistArtFallback({required this.name});
 
-  Widget _editForm(int i) => Container(
-        padding: const EdgeInsets.all(14),
-        margin: const EdgeInsets.only(bottom: 8),
-        decoration: BoxDecoration(color: RG.surface, borderRadius: BorderRadius.circular(14)),
-        child: Column(
-          children: [
-            TextField(
-              controller: _nameCtrl,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                hintText: 'Playlist name...',
-                hintStyle: const TextStyle(color: Colors.white38),
-                filled: true, fillColor: Colors.white.withValues(alpha: 0.06),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: RG.gold, foregroundColor: Colors.black),
-                    onPressed: () => _saveEdit(i), child: const Text('Save'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton(
-                    style: OutlinedButton.styleFrom(foregroundColor: Colors.white70, side: const BorderSide(color: Colors.white24)),
-                    onPressed: () => setState(() => _editingIndex = null), child: const Text('Cancel'),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      );
-
-  Widget _playlistTile(Map<String, dynamic> p, int i) {
-    final songs = (p['songs'] as List<JBSong>);
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(color: RG.surface, borderRadius: BorderRadius.circular(14)),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-        onTap: () {
-          if (songs.isNotEmpty) {
-            context.read<MusicBloc>().add(PlayTrackEvent(index: 0, tracks: songs));
-            Navigator.pop(context);
-          }
-        },
-        leading: Container(
-          width: 46, height: 46,
-          decoration: BoxDecoration(color: RG.black, borderRadius: BorderRadius.circular(10)),
-          child: Icon(p['smart'] == true ? Icons.auto_awesome : Icons.queue_music, color: RG.gold, size: 22),
-        ),
-        title: Row(
+      color: JBColors.void4,
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(p['name'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-            if (p['smart'] == true) ...[
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(color: RG.gold.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(4)),
-                child: const Text('SMART', style: TextStyle(color: RG.gold, fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
-              ),
-            ],
-          ],
-        ),
-        subtitle: Text('${songs.length} songs', style: const TextStyle(color: Colors.white54, fontSize: 12)),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(icon: const Icon(Icons.edit_outlined, color: Colors.white54, size: 18), onPressed: () => _startEdit(i)),
-            IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18), onPressed: () => _delete(i)),
+            const Icon(Icons.queue_music_rounded, color: JBColors.nova, size: 36),
+            const SizedBox(height: 6),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text(name,
+                style: JBType.captionMedium.copyWith(color: JBColors.textSecondary),
+                textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
+            ),
           ],
         ),
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ALBUMS TAB
+// ─────────────────────────────────────────────────────────────────────────────
+class _AlbumsTab extends StatelessWidget {
+  final List<MapEntry<String, List<JBSong>>> albums;
+  final void Function(JBSong, int, List<JBSong>) onTap;
+
+  const _AlbumsTab({required this.albums, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    if (albums.isEmpty) {
+      return const _EmptyState(
+        icon: Icons.album_outlined,
+        title: 'No albums found',
+        subtitle: 'Albums from your local library will appear here.',
+      );
+    }
+
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+        childAspectRatio: 0.82,
+      ),
+      itemCount: albums.length,
+      itemBuilder: (_, i) {
+        final entry = albums[i];
+        final tracks = entry.value;
+        final first = tracks.first;
+
+        return GestureDetector(
+          onTap: () {
+            HapticFeedback.lightImpact();
+            onTap(first, 0, tracks);
+          },
+          child: Container(
+            decoration: JBDecor.card,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(JBRadius.lg)),
+                    child: QueryArtworkWidget(
+                      id: int.tryParse(first.id) ?? 0,
+                      type: ArtworkType.AUDIO,
+                      artworkBorder: BorderRadius.zero,
+                      artworkFit: BoxFit.cover,
+                      nullArtworkWidget: Container(
+                        color: JBColors.void4,
+                        child: const Icon(Icons.album_outlined, color: JBColors.nova, size: 40),
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(entry.key,
+                        style: JBType.bodyMedium.copyWith(fontSize: 13),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                      Text('${tracks.length} tracks • ${first.artist}',
+                        style: JBType.micro,
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ).animate(delay: Duration(milliseconds: i * 30)).fadeIn(duration: 350.ms);
+      },
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ARTISTS TAB
+// ─────────────────────────────────────────────────────────────────────────────
+class _ArtistsTab extends StatelessWidget {
+  final List<MapEntry<String, List<JBSong>>> artists;
+  final void Function(JBSong, int, List<JBSong>) onTap;
+
+  const _ArtistsTab({required this.artists, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    if (artists.isEmpty) {
+      return const _EmptyState(
+        icon: Icons.person_outline_rounded,
+        title: 'No artists found',
+        subtitle: 'Artists from your library will appear here.',
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+      itemCount: artists.length,
+      itemBuilder: (_, i) {
+        final entry = artists[i];
+        final tracks = entry.value;
+        final first = tracks.first;
+
+        return GestureDetector(
+          onTap: () {
+            HapticFeedback.lightImpact();
+            onTap(first, 0, tracks);
+          },
+          child: AnimatedContainer(
+            duration: 250.ms,
+            margin: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: JBGlass.card(radius: JBRadius.md),
+            child: Row(
+              children: [
+                // Artist avatar (circle)
+                ClipOval(
+                  child: SizedBox(
+                    width: 52, height: 52,
+                    child: QueryArtworkWidget(
+                      id: int.tryParse(first.id) ?? 0,
+                      type: ArtworkType.AUDIO,
+                      artworkBorder: BorderRadius.zero,
+                      artworkFit: BoxFit.cover,
+                      nullArtworkWidget: Container(
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: JBGradients.nova,
+                        ),
+                        child: Center(
+                          child: Text(
+                            entry.key.isNotEmpty ? entry.key[0].toUpperCase() : '?',
+                            style: JBType.h3.copyWith(color: JBColors.void0),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(entry.key,
+                        style: JBType.bodyMedium.copyWith(fontSize: 15),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                      const SizedBox(height: 2),
+                      Text('${tracks.length} songs',
+                        style: JBType.caption),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded, color: JBColors.textTertiary, size: 20),
+              ],
+            ),
+          ),
+        ).animate(delay: Duration(milliseconds: i * 20)).fadeIn(duration: 300.ms).slideX(begin: 0.1);
+      },
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  CREATE PLAYLIST SHEET
+// ─────────────────────────────────────────────────────────────────────────────
+class _CreatePlaylistSheet extends StatefulWidget {
+  final List<JBSong> allTracks;
+  const _CreatePlaylistSheet({required this.allTracks});
+
+  @override
+  State<_CreatePlaylistSheet> createState() => _CreatePlaylistSheetState();
+}
+
+class _CreatePlaylistSheetState extends State<_CreatePlaylistSheet> {
+  final _ctrl = TextEditingController();
+  final _selected = <String>{};
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.75,
+      decoration: BoxDecoration(
+        color: JBColors.void2,
+        borderRadius: JBRadius.sheet,
+        border: Border.all(color: JBColors.glassBorder, width: 0.5),
+      ),
+      child: Column(
+        children: [
+          // Handle
+          const SizedBox(height: 12),
+          Center(
+            child: Container(
+              width: 36, height: 4,
+              decoration: BoxDecoration(color: JBColors.glassBorder, borderRadius: JBRadius.pill),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Header
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                Text('New Playlist', style: JBType.h3),
+                const Spacer(),
+                GestureDetector(
+                  onTap: () {
+                    if (_ctrl.text.trim().isEmpty) return;
+                    context.read<MusicBloc>().add(
+                      CreatePlaylistEvent(_ctrl.text.trim()),
+                    );
+                    Navigator.pop(context);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      gradient: JBGradients.nova,
+                      borderRadius: JBRadius.pill,
+                      boxShadow: JBShadow.nova,
+                    ),
+                    child: Text('Create',
+                      style: JBType.captionMedium.copyWith(color: JBColors.void0, fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Name field
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: TextField(
+              controller: _ctrl,
+              style: JBType.bodyMedium,
+              decoration: InputDecoration(
+                hintText: 'Playlist name',
+                hintStyle: JBType.body.copyWith(color: JBColors.textTertiary),
+                filled: true,
+                fillColor: JBColors.glass10,
+                border: OutlineInputBorder(
+                  borderRadius: JBRadius.cardSm,
+                  borderSide: const BorderSide(color: JBColors.glassBorder, width: 0.5),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: JBRadius.cardSm,
+                  borderSide: const BorderSide(color: JBColors.glassBorder, width: 0.5),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: JBRadius.cardSm,
+                  borderSide: const BorderSide(color: JBColors.nova, width: 1),
+                ),
+                prefixIcon: const Icon(Icons.queue_music_rounded, color: JBColors.nova, size: 18),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(children: [
+              Text('Add songs', style: JBType.caption),
+              const Spacer(),
+              Text('${_selected.length} selected',
+                style: JBType.caption.copyWith(color: JBColors.nova)),
+            ]),
+          ),
+          const SizedBox(height: 6),
+
+          // Song list
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: widget.allTracks.length,
+              itemBuilder: (_, i) {
+                final track = widget.allTracks[i];
+                final sel = _selected.contains(track.id);
+                return GestureDetector(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setState(() {
+                      if (sel) {
+                        _selected.remove(track.id);
+                      } else {
+                        _selected.add(track.id);
+                      }
+                    });
+                  },
+                  child: AnimatedContainer(
+                    duration: 200.ms,
+                    margin: const EdgeInsets.only(bottom: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                    decoration: sel ? JBDecor.activeCard : JBGlass.card(radius: JBRadius.sm),
+                    child: Row(
+                      children: [
+                        AnimatedContainer(
+                          duration: 200.ms,
+                          width: 22, height: 22,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: sel ? JBColors.nova : Colors.transparent,
+                            border: Border.all(
+                              color: sel ? JBColors.nova : JBColors.glassBorder, width: 1.5),
+                          ),
+                          child: sel
+                              ? const Icon(Icons.check_rounded, color: Colors.white, size: 13)
+                              : null,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(track.title,
+                                style: JBType.bodyMedium.copyWith(
+                                  color: sel ? JBColors.nova : JBColors.textPrimary, fontSize: 13),
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
+                              Text(track.artist, style: JBType.micro,
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  EMPTY STATE
+// ─────────────────────────────────────────────────────────────────────────────
+class _EmptyState extends StatelessWidget {
+  final IconData icon;
+  final String title, subtitle;
+  const _EmptyState({required this.icon, required this.title, required this.subtitle});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 80, height: 80,
+            decoration: BoxDecoration(
+              gradient: JBGradients.void_,
+              shape: BoxShape.circle,
+              border: Border.all(color: JBColors.glassBorder, width: 0.8),
+            ),
+            child: Icon(icon, color: JBColors.nova, size: 36),
+          ),
+          const SizedBox(height: 16),
+          Text(title, style: JBType.h3),
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
+            child: Text(subtitle, style: JBType.body, textAlign: TextAlign.center),
+          ),
+        ],
+      ),
+    ).animate().fadeIn(duration: 500.ms).scale(begin: const Offset(0.95, 0.95));
+  }
+}
+
+// ── Small wave indicator ──────────────────────────────────────────────────────
+class _SmallWave extends StatefulWidget {
+  final Color color;
+  const _SmallWave({required this.color});
+
+  @override
+  State<_SmallWave> createState() => _SmallWaveState();
+}
+
+class _SmallWaveState extends State<_SmallWave> with TickerProviderStateMixin {
+  late final List<AnimationController> _cs;
+
+  @override
+  void initState() {
+    super.initState();
+    _cs = List.generate(3, (i) => AnimationController(
+      vsync: this, duration: Duration(milliseconds: 380 + i * 100),
+    )..repeat(reverse: true));
+  }
+
+  @override
+  void dispose() {
+    for (final c in _cs) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: _cs.map((c) => AnimatedBuilder(
+        animation: c,
+        builder: (_, __) => Container(
+          width: 2.5, height: 4 + c.value * 8,
+          margin: const EdgeInsets.symmetric(horizontal: 0.8),
+          decoration: BoxDecoration(
+            color: widget.color,
+            borderRadius: BorderRadius.circular(1.5),
+          ),
+        ),
+      )).toList(),
     );
   }
 }

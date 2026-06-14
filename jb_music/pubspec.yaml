@@ -16,7 +16,7 @@ dependencies:
 
   # ── UI & Animations ────────────────────────────────────────────────────────
   cupertino_icons: ^1.0.8
-  flutter_animate: ^4.5.0
+  flutter_animate: ^4.5.2
   google_fonts: ^6.2.1
   palette_generator: ^0.3.3+3
 

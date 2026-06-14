@@ -1,14 +1,32 @@
 // lib/presentation/screens/jb_assistant_screen.dart
+//
+// JB MUSIC — NOVA AI ASSISTANT SCREEN
+// ─────────────────────────────────────────────────────────────────────────────
+// A Jarvis-level voice interface. Cinematic, intelligent, alive.
+//
+// Features:
+//  • Animated nova orb (idle / listening / thinking / responding)
+//  • Conversation history with glass message bubbles
+//  • Live voice transcript display
+//  • Quick command suggestions
+//  • Full screen immersive experience
+// ─────────────────────────────────────────────────────────────────────────────
+
 import 'dart:async';
+import 'dart:math' as math;
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:permission_handler/permission_handler.dart';
+
 import 'package:jb_music/application/bloc/music_bloc.dart';
-import 'package:jb_music/core/theme/rg_tokens.dart';
+import 'package:jb_music/core/theme/jb_design_system.dart';
 import 'package:jb_music/domain/entities/voice_intent.dart';
 import 'package:jb_music/presentation/animations/orb_painter.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 class JBAssistantScreen extends StatefulWidget {
   const JBAssistantScreen({super.key});
@@ -20,199 +38,213 @@ class JBAssistantScreen extends StatefulWidget {
 class _JBAssistantScreenState extends State<JBAssistantScreen>
     with TickerProviderStateMixin {
 
+  // ── Controllers ─────────────────────────────────────────────────────────
   late final AnimationController _orbCtrl;
+  late final AnimationController _pulseCtrl;
+  late final AnimationController _rippleCtrl;
   final FlutterTts _tts = FlutterTts();
 
-  OrbState _orbState = OrbState.idle;
-  bool _micActive = false;
-  String _liveTranscript = '';
-  final List<_HistoryItem> _history = [];
+  // ── State ────────────────────────────────────────────────────────────────
+  OrbState _orbState      = OrbState.idle;
+  bool     _micActive     = false;
+  String   _liveTranscript = '';
+  final List<_ChatMessage> _messages = [];
+  final _scrollCtrl = ScrollController();
+
   StreamSubscription<String>? _transcriptSub;
   StreamSubscription<VoiceCommandIntent>? _intentSub;
 
-  static String _responseFor(JbVoiceAction action, {String? payload}) {
-    switch (action) {
-      case JbVoiceAction.play:             return 'Playing music';
-      case JbVoiceAction.pause:            return 'Music paused';
-      case JbVoiceAction.togglePlayPause:  return 'Toggling playback';
-      case JbVoiceAction.next:             return 'Next song';
-      case JbVoiceAction.previous:         return 'Previous song';
-      case JbVoiceAction.shuffle:          return 'Shuffle on';
-      case JbVoiceAction.repeat:           return 'Repeat on';
-      case JbVoiceAction.volumeUp:         return 'Volume up';
-      case JbVoiceAction.volumeDown:       return 'Volume down';
-      case JbVoiceAction.searchSong:
-        return payload != null && payload.isNotEmpty
-            ? 'Searching for $payload'
-            : 'Searching';
-      case JbVoiceAction.playSong:
-        return payload != null && payload.isNotEmpty
-            ? 'Playing $payload'
-            : 'Playing song';
-      case JbVoiceAction.playPlaylist:
-        return payload != null && payload.isNotEmpty
-            ? 'Playing $payload playlist'
-            : 'Playing playlist';
-      case JbVoiceAction.setSleepTimer:
-        return payload != null && payload.isNotEmpty
-            ? 'Sleep timer set for $payload minutes'
-            : 'Sleep timer set';
-      case JbVoiceAction.cancelSleepTimer: return 'Sleep timer cancelled';
-      case JbVoiceAction.checkSafety:      return 'Opening ear safety';
-      case JbVoiceAction.unknown:          return 'Sorry, I didn\'t understand that';
-    }
-  }
-
-  static String _historyLabel(VoiceCommandIntent intent) {
-    final p = intent.payload;
-    switch (intent.action) {
-      case JbVoiceAction.playSong:      return p != null ? 'Play "$p"' : 'Play song';
-      case JbVoiceAction.searchSong:    return p != null ? 'Search "$p"' : 'Search';
-      case JbVoiceAction.playPlaylist:  return p != null ? 'Playlist: $p' : 'Play playlist';
-      case JbVoiceAction.setSleepTimer: return p != null ? 'Timer: $p min' : 'Set timer';
-      default:                          return _capitalize(intent.action.name);
-    }
-  }
-
-  static String _capitalize(String s) =>
-      s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+  // ── Quick commands ───────────────────────────────────────────────────────
+  static const _quickCmds = [
+    ('Play something', Icons.play_arrow_rounded),
+    ('Skip this song', Icons.skip_next_rounded),
+    ('Shuffle all',    Icons.shuffle_rounded),
+    ('Sleep in 30m',   Icons.bedtime_outlined),
+    ('Play liked',     Icons.favorite_outlined),
+    ('Volume up',      Icons.volume_up_rounded),
+  ];
 
   @override
   void initState() {
     super.initState();
+    _orbCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 4))
+        ..repeat();
+    _pulseCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))
+        ..repeat(reverse: true);
+    _rippleCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1800))
+        ..repeat();
 
-    _orbCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    );
+    _tts.setLanguage('en-US');
+    _tts.setSpeechRate(0.42);
+    _tts.setVolume(0.9);
 
-    _initTts();
-    _bindVoiceStream();
+    _listenToBloc();
+    _greet();
   }
 
-  Future<void> _initTts() async {
-    await _tts.setLanguage('en-US');
-    await _tts.setSpeechRate(0.5);
-    await _tts.setVolume(0.9);
-    await _tts.setPitch(1.0);
-    _tts.setStartHandler(() {
-      if (mounted) setState(() => _orbState = OrbState.speaking);
+  void _greet() {
+    final hour = DateTime.now().hour;
+    final greeting = hour < 12 ? 'Good morning!'
+        : hour < 17 ? 'Good afternoon!'
+        : 'Good evening!';
+    final msg = '$greeting I\'m JB, your music assistant. Try saying something like "Play motivational songs" or "Skip this track".';
+
+    Future.delayed(const Duration(milliseconds: 800), () {
+      if (!mounted) return;
+      setState(() => _messages.add(_ChatMessage(text: msg, isUser: false)));
     });
-    _tts.setCompletionHandler(() {
-      if (mounted) {
-        setState(() => _orbState = _micActive ? OrbState.listening : OrbState.idle);
+  }
+
+  void _listenToBloc() {
+    final bloc = context.read<MusicBloc>();
+
+    // resultStream emits raw recognized text
+    _transcriptSub = bloc.voiceEngine.resultStream.listen((t) {
+      if (!mounted) return;
+      setState(() {
+        _liveTranscript = t;
+        _orbState = OrbState.listening;
+      });
+    });
+
+    // commandIntentStream emits parsed VoiceCommandIntent
+    _intentSub = bloc.voiceEngine.commandIntentStream.listen((intent) {
+      if (!mounted) return;
+      final response = _responseFor(intent.action, payload: intent.payload);
+
+      setState(() {
+        if (_liveTranscript.isNotEmpty) {
+          _messages.add(_ChatMessage(text: _liveTranscript, isUser: true));
+          _liveTranscript = '';
+        }
+        _messages.add(_ChatMessage(text: response, isUser: false));
+        _orbState = OrbState.responding;
+      });
+
+      _tts.speak(response);
+      HapticFeedback.lightImpact();
+
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) setState(() => _orbState = OrbState.idle);
+      });
+
+      _scrollToBottom();
+    });
+  }
+
+  void _scrollToBottom() {
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (_scrollCtrl.hasClients) {
+        _scrollCtrl.animateTo(
+          _scrollCtrl.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 400),
+          curve: JBAnim.easeOut,
+        );
       }
     });
   }
 
-  void _bindVoiceStream() {
-    final musicBloc   = context.read<MusicBloc>();
-    // FIX: voiceEngine is non-nullable — remove null check
-    final voiceEngine = musicBloc.voiceEngine;
-
-    _transcriptSub = voiceEngine.resultStream.listen(
-      (text) {
-        if (!mounted) return;
-        setState(() => _liveTranscript = text);
-      },
-      onError: (error) {
-        debugPrint('Transcript error: $error');
-      },
-    );
-
-    _intentSub = voiceEngine.commandIntentStream.listen(
-      (intent) {
-        if (!mounted) return;
-
-        final response = _responseFor(intent.action, payload: intent.payload);
-        final label    = _historyLabel(intent);
-
-        setState(() {
-          _liveTranscript = '';
-          _history.insert(0, _HistoryItem(
-            command:  label,
-            response: response,
-            time:     TimeOfDay.now(),
-          ));
-          if (_history.length > 20) _history.removeLast();
-          _orbState = OrbState.thinking;
-        });
-
-        Future.delayed(const Duration(milliseconds: 400), () {
-          if (mounted) _speak(response);
-        });
-      },
-      onError: (error) {
-        debugPrint('Intent error: $error');
-      },
-    );
-  }
-
-  Future<void> _speak(String text) async {
-    await _tts.speak(text);
-  }
-
-  Future<bool> _checkMicrophonePermission() async {
-    final status = await Permission.microphone.status;
-    if (!status.isGranted) {
-      final result = await Permission.microphone.request();
-      return result.isGranted;
+  static String _responseFor(JbVoiceAction action, {String? payload}) {
+    switch (action) {
+      case JbVoiceAction.play:            return 'Playing your music ♪';
+      case JbVoiceAction.pause:           return 'Music paused.';
+      case JbVoiceAction.togglePlayPause: return 'Toggling playback.';
+      case JbVoiceAction.next:            return 'Skipping to next track.';
+      case JbVoiceAction.previous:        return 'Going back a track.';
+      case JbVoiceAction.shuffle:         return 'Shuffle mode is on. Enjoy the surprise!';
+      case JbVoiceAction.repeat:          return 'Repeat mode activated.';
+      case JbVoiceAction.volumeUp:        return 'Volume raised.';
+      case JbVoiceAction.volumeDown:      return 'Volume lowered.';
+      case JbVoiceAction.searchSong:
+        return payload?.isNotEmpty == true ? 'Searching for "$payload"…' : 'Searching…';
+      case JbVoiceAction.playSong:
+        return payload?.isNotEmpty == true ? 'Playing "$payload" ♪' : 'Playing track…';
+      case JbVoiceAction.playPlaylist:
+        return payload?.isNotEmpty == true ? 'Starting "$payload" playlist.' : 'Playing playlist.';
+      case JbVoiceAction.setSleepTimer:
+        return payload?.isNotEmpty == true ? 'Sleep timer set for $payload minutes.' : 'Sleep timer set.';
+      case JbVoiceAction.cancelSleepTimer: return 'Sleep timer cancelled.';
+      default: return 'Got it!';
     }
-    return true;
   }
 
   Future<void> _toggleMic() async {
-    final bloc = context.read<MusicBloc>();
+    HapticFeedback.mediumImpact();
 
-    if (!_micActive) {
-      final hasPermission = await _checkMicrophonePermission();
-      if (!hasPermission) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Microphone permission required')),
-          );
-        }
+    if (_micActive) {
+      setState(() { _micActive = false; _orbState = OrbState.idle; });
+      context.read<MusicBloc>().add(StopVoiceListeningEvent());
+    } else {
+      final status = await Permission.microphone.request();
+      if (!mounted) return;
+      if (!status.isGranted) {
+        _showPermissionDenied();
         return;
       }
-
-      setState(() {
-        _micActive = true;
-        _orbState  = OrbState.listening;
-      });
-      bloc.add(StartVoiceListeningEvent());
-      _orbCtrl.repeat();
-    } else {
-      setState(() {
-        _micActive     = false;
-        _orbState      = OrbState.idle;
-        _liveTranscript = '';
-      });
-      bloc.add(StopVoiceListeningEvent());
-      _orbCtrl.stop();
+      setState(() { _micActive = true; _orbState = OrbState.listening; });
+      context.read<MusicBloc>().add(StartVoiceListeningEvent());
     }
   }
 
-  Color get _orbColor {
-    switch (_orbState) {
-      case OrbState.idle:      return RG.gold;
-      case OrbState.listening: return const Color(0xFF4CAF50);
-      case OrbState.thinking:  return const Color(0xFF2196F3);
-      case OrbState.speaking:  return RG.goldLight;
-    }
+  void _showPermissionDenied() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.mic_off_rounded, color: JBColors.error, size: 18),
+            const SizedBox(width: 10),
+            Text('Microphone permission required', style: JBType.bodyMedium),
+          ],
+        ),
+        backgroundColor: JBColors.void3,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: JBRadius.cardSm),
+      ),
+    );
   }
 
-  String get _statusLabel {
-    switch (_orbState) {
-      case OrbState.idle:      return _micActive ? 'Tap to stop' : 'Tap to activate';
-      case OrbState.listening: return 'Listening…';
-      case OrbState.thinking:  return 'Thinking…';
-      case OrbState.speaking:  return 'Speaking…';
+  void _sendQuickCmd(String cmd) {
+    HapticFeedback.selectionClick();
+    setState(() => _messages.add(_ChatMessage(text: cmd, isUser: true)));
+    // Route quick commands to the BLoC / audioHandler / dspEngine
+    final bloc = context.read<MusicBloc>();
+    final lower = cmd.toLowerCase();
+    if (lower.contains('play')) {
+      bloc.audioHandler.play();
+    } else if (lower.contains('skip') || lower.contains('next')) {
+      bloc.audioHandler.skipToNext();
+    } else if (lower.contains('shuffle')) {
+      bloc.audioHandler.setShuffleMode(AudioServiceShuffleMode.all);
+    } else if (lower.contains('volume up')) {
+      // FIXED: volume control lives on dspEngine, not audioHandler
+      final dsp = bloc.dspEngine;
+      dsp.setVolume((dsp.volume + 0.1).clamp(0.0, 1.0));
+    } else if (lower.contains('sleep')) {
+      bloc.audioHandler.pause();
+    } else if (lower.contains('liked') || lower.contains('favorite')) {
+      // FIXED: PlaySmartPlaylistEvent takes a SmartPlaylistType enum
+      bloc.add(PlaySmartPlaylistEvent(SmartPlaylistType.shuffle));
     }
+    // Add AI response bubble
+    final response = lower.contains('play') ? 'Playing ♪'
+        : lower.contains('skip') ? 'Skipping to next track.'
+        : lower.contains('shuffle') ? 'Shuffle on!'
+        : lower.contains('volume') ? 'Volume raised.'
+        : lower.contains('sleep') ? 'Pausing for sleep.'
+        : lower.contains('liked') ? 'Playing your favorites ♪'
+        : 'Got it!';
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) setState(() => _messages.add(_ChatMessage(text: response, isUser: false)));
+    });
+    _scrollToBottom();
   }
 
   @override
   void dispose() {
     _orbCtrl.dispose();
+    _pulseCtrl.dispose();
+    _rippleCtrl.dispose();
+    _scrollCtrl.dispose();
     _transcriptSub?.cancel();
     _intentSub?.cancel();
     _tts.stop();
@@ -222,226 +254,479 @@ class _JBAssistantScreenState extends State<JBAssistantScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: RG.black,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        title: Text('JB Assistant', style: RG.titleStyle),
-        centerTitle: true,
-        elevation: 0,
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _CommandChips().animate().fadeIn(delay: 200.ms, duration: 500.ms),
-            const Spacer(),
-
-            AnimatedOpacity(
-              duration: const Duration(milliseconds: 300),
-              opacity: _liveTranscript.isNotEmpty ? 1 : 0,
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: RG.spaceLG),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: RG.spaceMD,
-                  vertical: RG.spaceSM,
-                ),
-                decoration: BoxDecoration(
-                  color: RG.surfaceHigh,
-                  borderRadius: BorderRadius.circular(RG.radiusLG),
-                  border: Border.all(color: RG.borderGold),
-                ),
-                child: Text(
-                  _liveTranscript.isEmpty ? ' ' : '"$_liveTranscript"',
-                  style: RG.bodyStyle.copyWith(
-                    color: RG.textPrimary,
-                    fontStyle: FontStyle.italic,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
-            const SizedBox(height: RG.spaceLG),
-
-            GestureDetector(
-              onTap: _toggleMic,
-              child: AnimatedBuilder(
-                animation: _orbCtrl,
-                builder: (_, __) => SizedBox(
-                  width: 220,
-                  height: 220,
-                  child: CustomPaint(
-                    painter: OrbPainter(
-                      animValue: _orbCtrl.value,
-                      orbState: _orbState,
-                      baseColor: _orbColor,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: RG.spaceMD),
-
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 250),
-              child: Text(
-                _statusLabel,
-                key: ValueKey(_statusLabel),
-                style: RG.subtitleStyle.copyWith(
-                  color: _orbColor,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Say "Hey JB, play music" or tap the orb',
-              style: RG.captionStyle,
-            ),
-            const Spacer(),
-
-            if (_history.isNotEmpty) _HistoryPanel(history: _history),
-            const SizedBox(height: RG.spaceLG),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CommandChips extends StatelessWidget {
-  static const _commands = [
-    'Play music', 'Next song', 'Pause', 'Shuffle',
-    'Play favourites', 'Sleep timer 30 min', 'Volume up', 'Repeat',
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(RG.spaceMD, RG.spaceLG, RG.spaceMD, 0),
-      child: Wrap(
-        spacing: RG.spaceSM,
-        runSpacing: RG.spaceSM,
-        alignment: WrapAlignment.center,
-        children: _commands.map((cmd) => _Chip(label: cmd)).toList(),
-      ),
-    );
-  }
-}
-
-class _Chip extends StatelessWidget {
-  final String label;
-  const _Chip({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: RG.surfacePop,
-        borderRadius: BorderRadius.circular(RG.radiusFull),
-        border: Border.all(color: RG.border),
-      ),
-      child: Text(
-        '"$label"',
-        style: const TextStyle(
-          color: RG.textSecondary,
-          fontSize: 11,
-          fontStyle: FontStyle.italic,
-        ),
-      ),
-    );
-  }
-}
-
-class _HistoryItem {
-  final String    command;
-  final String    response;
-  final TimeOfDay time;
-  const _HistoryItem({
-    required this.command,
-    required this.response,
-    required this.time,
-  });
-}
-
-class _HistoryPanel extends StatelessWidget {
-  final List<_HistoryItem> history;
-  const _HistoryPanel({required this.history});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 180,
-      margin: const EdgeInsets.symmetric(horizontal: RG.spaceMD),
-      decoration: BoxDecoration(
-        color: RG.surfaceHigh,
-        borderRadius: BorderRadius.circular(RG.radiusLG),
-        border: Border.all(color: RG.border),
-      ),
-      child: Column(
+      backgroundColor: JBColors.void0,
+      body: Stack(
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: RG.spaceMD,
-              vertical: RG.spaceSM,
-            ),
-            child: Row(
+          // Background gradient
+          _AssistantBackground(orbCtrl: _orbCtrl, orbState: _orbState),
+
+          SafeArea(
+            child: Column(
               children: [
-                const Icon(Icons.history, color: RG.textMuted, size: 16),
-                const SizedBox(width: 6),
-                Text('Command History', style: RG.captionStyle),
+                // ── Header ────────────────────────────────────────────────
+                const _AssistantHeader().animate().fadeIn(duration: 500.ms),
+
+                // ── Orb ───────────────────────────────────────────────────
+                _OrbSection(
+                  orbCtrl: _orbCtrl,
+                  pulseCtrl: _pulseCtrl,
+                  rippleCtrl: _rippleCtrl,
+                  orbState: _orbState,
+                  micActive: _micActive,
+                  liveTranscript: _liveTranscript,
+                  onMicTap: _toggleMic,
+                ).animate().fadeIn(duration: 600.ms, delay: 100.ms),
+
+                // ── Chat history ─────────────────────────────────────────
+                Expanded(
+                  child: _ChatHistory(
+                    messages: _messages,
+                    scrollCtrl: _scrollCtrl,
+                  ),
+                ),
+
+                // ── Quick commands ────────────────────────────────────────
+                _QuickCommandRow(
+                  commands: _quickCmds,
+                  onTap: _sendQuickCmd,
+                ).animate().slideY(begin: 0.3, end: 0, duration: 500.ms, delay: 200.ms)
+                  .fadeIn(duration: 400.ms),
+
+                const SizedBox(height: 8),
               ],
-            ),
-          ),
-          const Divider(height: 0, color: RG.border),
-          Expanded(
-            child: ListView.builder(
-              itemCount: history.length,
-              itemBuilder: (_, i) {
-                final item = history[i];
-                return Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: RG.spaceMD,
-                    vertical: 6,
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(Icons.mic, color: RG.gold, size: 14),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              item.command,
-                              style: const TextStyle(
-                                color: RG.textPrimary,
-                                fontSize: 12,
-                              ),
-                            ),
-                            Text(
-                              item.response,
-                              style: const TextStyle(
-                                color: RG.textSecondary,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Text(
-                        '${item.time.hour.toString().padLeft(2, '0')}:'
-                        '${item.time.minute.toString().padLeft(2, '0')}',
-                        style: RG.labelStyle,
-                      ),
-                    ],
-                  ),
-                ).animate(delay: (i * 30).ms).fadeIn(duration: 200.ms);
-              },
             ),
           ),
         ],
       ),
     );
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  BACKGROUND
+// ─────────────────────────────────────────────────────────────────────────────
+class _AssistantBackground extends StatelessWidget {
+  final AnimationController orbCtrl;
+  final OrbState orbState;
+  const _AssistantBackground({required this.orbCtrl, required this.orbState});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: orbCtrl,
+      builder: (_, __) {
+        final t = orbCtrl.value;
+        final color = orbState == OrbState.listening ? JBColors.pulse
+            : orbState == OrbState.responding ? JBColors.aurora
+            : JBColors.nova;
+
+        return SizedBox.expand(
+          child: Stack(
+            children: [
+              Container(color: JBColors.void0),
+              Positioned(
+                top: -80 + math.sin(t * math.pi * 2) * 20,
+                left: MediaQuery.of(context).size.width / 2 - 150,
+                child: Container(
+                  width: 300, height: 300,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: color.withValues(alpha: 0.06),
+                  ),
+                  child: const _BlurCircle(sigma: 80),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _BlurCircle extends StatelessWidget {
+  final double sigma;
+  const _BlurCircle({required this.sigma});
+  @override
+  Widget build(BuildContext context) {
+    return ClipOval(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+        child: const SizedBox.expand(),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  HEADER
+// ─────────────────────────────────────────────────────────────────────────────
+class _AssistantHeader extends StatelessWidget {
+  const _AssistantHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: Row(
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('JB Assistant', style: JBType.h2),
+              Text('AI-powered • Voice-first', style: JBType.caption.copyWith(color: JBColors.nova)),
+            ],
+          ),
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: JBGlass.auroraCard(radius: JBRadius.full),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 6, height: 6,
+                  decoration: const BoxDecoration(
+                    color: JBColors.aurora, shape: BoxShape.circle),
+                ),
+                const SizedBox(width: 6),
+                Text('Online', style: JBType.micro.copyWith(color: JBColors.aurora, fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ORB SECTION
+// ─────────────────────────────────────────────────────────────────────────────
+class _OrbSection extends StatelessWidget {
+  final AnimationController orbCtrl, pulseCtrl, rippleCtrl;
+  final OrbState orbState;
+  final bool micActive;
+  final String liveTranscript;
+  final VoidCallback onMicTap;
+
+  const _OrbSection({
+    required this.orbCtrl, required this.pulseCtrl, required this.rippleCtrl,
+    required this.orbState, required this.micActive,
+    required this.liveTranscript, required this.onMicTap,
+  });
+
+  Color get _orbColor {
+    switch (orbState) {
+      case OrbState.listening:  return JBColors.pulse;
+      case OrbState.thinking:   return JBColors.aurora;
+      case OrbState.responding: return JBColors.aurora;
+      case OrbState.idle:       return JBColors.nova;
+    }
+  }
+
+  String get _stateLabel {
+    switch (orbState) {
+      case OrbState.listening:  return 'Listening…';
+      case OrbState.thinking:   return 'Processing…';
+      case OrbState.responding: return 'Speaking…';
+      case OrbState.idle:       return 'Tap to speak';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Column(
+        children: [
+          // Orb
+          GestureDetector(
+            onTap: onMicTap,
+            child: AnimatedBuilder(
+              animation: Listenable.merge([orbCtrl, pulseCtrl, rippleCtrl]),
+              builder: (_, __) {
+                final pulse = 1.0 + pulseCtrl.value * 0.08;
+                final ripple = rippleCtrl.value;
+
+                return SizedBox(
+                  width: 140, height: 140,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Ripple rings (listening state)
+                      if (micActive) ...[
+                        _RippleRing(
+                          color: _orbColor,
+                          scale: 0.8 + ripple * 0.4,
+                          opacity: (1 - ripple) * 0.3,
+                          size: 140,
+                        ),
+                        _RippleRing(
+                          color: _orbColor,
+                          scale: 0.7 + ((ripple + 0.5) % 1.0) * 0.4,
+                          opacity: (1 - ((ripple + 0.5) % 1.0)) * 0.2,
+                          size: 140,
+                        ),
+                      ],
+
+                      // Main orb
+                      Transform.scale(
+                        scale: pulse,
+                        child: Container(
+                          width: 100, height: 100,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: RadialGradient(
+                              colors: [
+                                _orbColor.withValues(alpha: 0.9),
+                                _orbColor.withValues(alpha: 0.5),
+                                _orbColor.withValues(alpha: 0.1),
+                              ],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: _orbColor.withValues(alpha: 0.4),
+                                blurRadius: 32,
+                                spreadRadius: 8,
+                              ),
+                              BoxShadow(
+                                color: _orbColor.withValues(alpha: 0.2),
+                                blurRadius: 60,
+                                spreadRadius: 20,
+                              ),
+                            ],
+                          ),
+                          child: CustomPaint(
+                            painter: OrbPainter(
+                              t: orbCtrl.value,
+                              state: orbState,
+                              color: _orbColor,
+                            ),
+                            child: Center(
+                              child: Icon(
+                                micActive ? Icons.mic_rounded : Icons.mic_none_rounded,
+                                color: Colors.white,
+                                size: 36,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          // State label
+          AnimatedSwitcher(
+            duration: 300.ms,
+            child: Text(
+              liveTranscript.isNotEmpty ? '"$liveTranscript"' : _stateLabel,
+              key: ValueKey(liveTranscript.isNotEmpty ? liveTranscript : _stateLabel),
+              style: liveTranscript.isNotEmpty
+                  ? JBType.bodyMedium.copyWith(color: JBColors.textPrimary, fontStyle: FontStyle.italic)
+                  : JBType.caption.copyWith(color: _orbColor),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RippleRing extends StatelessWidget {
+  final Color color;
+  final double scale, opacity, size;
+  const _RippleRing({
+    required this.color, required this.scale,
+    required this.opacity, required this.size,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Transform.scale(
+      scale: scale,
+      child: Container(
+        width: size, height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: color.withValues(alpha: opacity),
+            width: 2,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  CHAT HISTORY
+// ─────────────────────────────────────────────────────────────────────────────
+class _ChatHistory extends StatelessWidget {
+  final List<_ChatMessage> messages;
+  final ScrollController scrollCtrl;
+  const _ChatHistory({required this.messages, required this.scrollCtrl});
+
+  @override
+  Widget build(BuildContext context) {
+    if (messages.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.auto_awesome_rounded, color: JBColors.nova.withValues(alpha: 0.3), size: 40),
+            const SizedBox(height: 10),
+            Text('Your conversation will appear here',
+              style: JBType.body.copyWith(color: JBColors.textTertiary),
+              textAlign: TextAlign.center),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      controller: scrollCtrl,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      itemCount: messages.length,
+      itemBuilder: (_, i) {
+        final msg = messages[i];
+        return _MessageBubble(msg: msg)
+            .animate(delay: 50.ms)
+            .fadeIn(duration: 300.ms)
+            .slideY(begin: 0.15, end: 0, curve: JBAnim.easeOut);
+      },
+    );
+  }
+}
+
+class _MessageBubble extends StatelessWidget {
+  final _ChatMessage msg;
+  const _MessageBubble({required this.msg});
+
+  @override
+  Widget build(BuildContext context) {
+    final isUser = msg.isUser;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (!isUser) ...[
+            Container(
+              width: 28, height: 28,
+              margin: const EdgeInsets.only(right: 8, bottom: 2),
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: JBGradients.nova,
+              ),
+              child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 14),
+            ),
+          ],
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: isUser
+                  ? const BoxDecoration(
+                      gradient: JBGradients.nova,
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(JBRadius.lg),
+                        topRight: Radius.circular(JBRadius.lg),
+                        bottomLeft: Radius.circular(JBRadius.lg),
+                        bottomRight: Radius.circular(4),
+                      ),
+                    )
+                  : JBGlass.card(
+                      radius: JBRadius.md,
+                    ).copyWith(
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(4),
+                        topRight: Radius.circular(JBRadius.lg),
+                        bottomLeft: Radius.circular(JBRadius.lg),
+                        bottomRight: Radius.circular(JBRadius.lg),
+                      ),
+                    ),
+              child: Text(
+                msg.text,
+                style: JBType.body.copyWith(
+                  color: isUser ? JBColors.void0 : JBColors.textPrimary,
+                ),
+              ),
+            ),
+          ),
+          if (isUser) ...[
+            Container(
+              width: 28, height: 28,
+              margin: const EdgeInsets.only(left: 8, bottom: 2),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: JBColors.glass20,
+                border: Border.all(color: JBColors.glassBorder, width: 0.5),
+              ),
+              child: const Icon(Icons.person_rounded, color: JBColors.textSecondary, size: 14),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  QUICK COMMAND ROW
+// ─────────────────────────────────────────────────────────────────────────────
+class _QuickCommandRow extends StatelessWidget {
+  final List<(String, IconData)> commands;
+  final void Function(String) onTap;
+  const _QuickCommandRow({required this.commands, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 42,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: commands.length,
+        itemBuilder: (_, i) {
+          final cmd = commands[i];
+          return GestureDetector(
+            onTap: () => onTap(cmd.$1),
+            child: Container(
+              margin: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              decoration: JBGlass.card(radius: JBRadius.full),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(cmd.$2, color: JBColors.nova, size: 14),
+                  const SizedBox(width: 6),
+                  Text(cmd.$1,
+                    style: JBType.captionMedium.copyWith(color: JBColors.textPrimary, fontSize: 12)),
+                ],
+              ),
+            ),
+          ).animate(delay: Duration(milliseconds: i * 40)).slideX(begin: 0.2).fadeIn();
+        },
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  DATA
+// ─────────────────────────────────────────────────────────────────────────────
+class _ChatMessage {
+  final String text;
+  final bool isUser;
+  const _ChatMessage({required this.text, required this.isUser});
 }

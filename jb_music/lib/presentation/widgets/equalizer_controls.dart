@@ -1,453 +1,450 @@
 // lib/presentation/widgets/equalizer_controls.dart
-// FIXED: Bass Boost, Vocal Clear, enhanced 8D toggle, all EQ presets working
-import 'dart:ui';
+//
+// JB MUSIC — NOVA EQUALIZER CONTROLS  (fixed: correct JBDspEngine API)
+// ─────────────────────────────────────────────────────────────────────────────
+// Full-featured EQ sheet with:
+//  • 5-band frequency sliders (vertical, custom painted)
+//  • Preset quick-select row
+//  • Bass boost, Vocal clarity, 8D toggles
+//  • Real-time wiring to DSP engine
+// ─────────────────────────────────────────────────────────────────────────────
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+
 import 'package:jb_music/application/bloc/music_bloc.dart';
-import 'package:jb_music/core/theme/rg_tokens.dart';
-
-const _kBandLabels = ['31', '62', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
-
-const _kPresets = {
-  'Flat':       [0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0],
-  'Bass+':      [8.0,  7.0,  5.0,  3.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0],
-  'Treble+':    [0.0,  0.0,  0.0,  0.0,  0.0,  2.0,  4.0,  6.0,  7.0,  8.0],
-  'Vocal':      [-2.0,-2.0,  0.0,  3.0,  5.0,  5.0,  3.0,  0.0, -2.0, -2.0],
-  'Rock':       [5.0,  4.0,  2.0,  0.0,  0.0,  2.0,  4.0,  5.0,  5.0,  6.0],
-  'Pop':        [2.0,  3.0,  4.0,  4.0,  2.0,  0.0,  2.0,  3.0,  3.0,  2.0],
-  'Electronic': [6.0,  5.0,  0.0, -3.0, -2.0,  2.0,  4.0,  5.0,  6.0,  7.0],
-  'Hip-Hop':    [8.0,  6.0,  3.0,  1.0,  0.0,  0.0,  2.0,  3.0,  2.0,  1.0],
-};
+import 'package:jb_music/core/audio/dsp_engine.dart';
+import 'package:jb_music/core/theme/jb_design_system.dart';
 
 class EqualizerControls extends StatefulWidget {
   const EqualizerControls({super.key});
+
   @override
   State<EqualizerControls> createState() => _EqualizerControlsState();
 }
 
-class _EqualizerControlsState extends State<EqualizerControls>
-    with SingleTickerProviderStateMixin {
-  List<double> _bands = List<double>.filled(10, 0.0);
-  String? _activePreset = 'Flat';
+class _EqualizerControlsState extends State<EqualizerControls> {
 
-  bool _bassBoostOn = false;
-  bool _vocalClearOn = false;
-  bool _is8DOn = false;
+  // 5-band EQ: Sub-bass, Bass, Mid, Presence, Treble
+  static const _bands = ['60Hz', '230Hz', '910Hz', '3.6kHz', '14kHz'];
+  late List<double> _gains;     // dB per band, from JBDspEngine.equalizerGains
+  late EqPreset _preset;
+  late bool _bassBoost;
+  late bool _vocalClear;
+  late bool _is8D;
 
-  late final AnimationController _glowCtrl;
+  late JBDspEngine _dsp;
 
   @override
   void initState() {
     super.initState();
-    _glowCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1800),
-    )..repeat(reverse: true);
+    _dsp = context.read<MusicBloc>().dspEngine;
+    _preset     = _dsp.activePreset;
+    _bassBoost  = _dsp.isBassBoostEnabled;
+    _vocalClear = _dsp.isVocalClearEnabled;
+    _is8D       = _dsp.is8DEnabled;
+    // FIXED: equalizerGains (not bandGains)
+    _gains      = List<double>.from(_dsp.equalizerGains);
+  }
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final bloc = context.read<MusicBloc>();
-      setState(() {
-        _bassBoostOn  = bloc.dspEngine.isBassBoostEnabled;
-        _vocalClearOn = bloc.dspEngine.isVocalClearEnabled;
-        _is8DOn       = bloc.dspEngine.is8DEnabled;
-      });
+  void _applyGain(int band, double value) {
+    setState(() => _gains[band] = value);
+    // FIXED: setEqualizerBandGain (not setBandGain); async, fire-and-forget
+    _dsp.setEqualizerBandGain(band, value);
+    HapticFeedback.selectionClick();
+  }
+
+  void _selectPreset(EqPreset preset) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _preset = preset;
+      // FIXED: preset.gains is an extension getter on EqPreset (not dsp.gainsForPreset)
+      _gains  = List<double>.from(preset.gains);
     });
+    // FIXED: applyPreset (not setPreset); async, fire-and-forget
+    _dsp.applyPreset(preset);
   }
 
-  @override
-  void dispose() {
-    _glowCtrl.dispose();
-    super.dispose();
-  }
-
-  void _applyPreset(String name) {
-    final values = List<double>.from(_kPresets[name]!);
-    setState(() { _bands = values; _activePreset = name; });
-    for (var i = 0; i < values.length; i++) {
-      final hwBand = i ~/ 2;
-      context.read<MusicBloc>().dspEngine.setEqualizerBandGain(hwBand, values[i]);
-    }
-  }
-
-  void _onBandChanged(int index, double value) {
-    setState(() { _bands[index] = value; _activePreset = null; });
-    final hwBand = (index ~/ 2).clamp(0, 4);
-    context.read<MusicBloc>().dspEngine.setEqualizerBandGain(hwBand, value);
-  }
-
-  Future<void> _toggleBassBoost() async {
-    final newVal = !_bassBoostOn;
-    setState(() => _bassBoostOn = newVal);
-    await context.read<MusicBloc>().dspEngine.setBassBoost(newVal);
-    if (newVal) setState(() => _activePreset = null);
-  }
-
-  Future<void> _toggleVocalClear() async {
-    final newVal = !_vocalClearOn;
-    setState(() => _vocalClearOn = newVal);
-    await context.read<MusicBloc>().dspEngine.setVocalClear(newVal);
-    if (newVal) setState(() => _activePreset = null);
-  }
-
-  Future<void> _toggle8D() async {
-    final newVal = !_is8DOn;
-    setState(() => _is8DOn = newVal);
-    await context.read<MusicBloc>().dspEngine.set8DMode(newVal);
-  }
-
-  Color _bandColor(double db) {
-    if (db >= 5) return RG.pink;
-    if (db >= 2) return Color.lerp(RG.cyan, RG.pink, (db - 2) / 3)!;
-    if (db >= 0) return RG.cyan;
-    return Color.lerp(Colors.white38, RG.cyan, 1 + db / 10)!;
+  void _reset() {
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _preset = EqPreset.flat;
+      _gains  = List<double>.from(EqPreset.flat.gains);
+    });
+    _dsp.applyPreset(EqPreset.flat);
   }
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFF0A0F1E).withValues(alpha: 0.96),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-            border: Border(top: BorderSide(color: RG.cyan.withValues(alpha: 0.22), width: 0.8)),
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.82,
+      decoration: BoxDecoration(
+        color: JBColors.void2,
+        borderRadius: JBRadius.sheet,
+        border: Border.all(color: JBColors.glassBorder, width: 0.5),
+      ),
+      child: Column(
+        children: [
+          // Handle + header
+          const _SheetHandle(),
+          _EQHeader(onReset: _reset),
+
+          // Preset pills
+          _PresetRow(current: _preset, onSelect: _selectPreset)
+              .animate(delay: 50.ms).fadeIn(duration: 400.ms),
+
+          const SizedBox(height: 8),
+
+          // Band sliders
+          Expanded(
+            child: _BandSliders(
+              bands: _bands,
+              gains: _gains,
+              onChanged: _applyGain,
+            ).animate(delay: 100.ms).fadeIn(duration: 400.ms).slideY(begin: 0.15),
           ),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(height: 12),
-                Container(
-                  width: 36, height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 16),
 
-                // Header
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Row(
-                    children: [
-                      AnimatedBuilder(
-                        animation: _glowCtrl,
-                        builder: (_, __) => Icon(
-                          Icons.equalizer_rounded,
-                          color: Color.lerp(RG.cyan, RG.pink, _glowCtrl.value),
-                          size: 22,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      const Text(
-                        'SOUND STUDIO',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 2.0,
-                        ),
-                      ),
-                      const Spacer(),
-                      if (_activePreset == null)
-                        const _NeonChip(
-                          label: 'CUSTOM',
-                          active: true,
-                          // FIX: was activeThumbColor (invalid) → activeColor
-                          activeColor: RG.pink,
-                          onTap: null,
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
+          // Feature toggles
+          _FeatureToggles(
+            bassBoost:  _bassBoost,
+            vocalClear: _vocalClear,
+            is8D:       _is8D,
+            onBassBoost: (v) {
+              setState(() => _bassBoost = v);
+              _dsp.setBassBoost(v);
+              HapticFeedback.selectionClick();
+            },
+            onVocalClear: (v) {
+              setState(() => _vocalClear = v);
+              _dsp.setVocalClear(v);
+              HapticFeedback.selectionClick();
+            },
+            on8D: (v) {
+              setState(() => _is8D = v);
+              // FIXED: set8DMode (not set8D)
+              _dsp.set8DMode(v);
+              HapticFeedback.selectionClick();
+            },
+          ).animate(delay: 150.ms).fadeIn(duration: 400.ms),
 
-                // Quick Effects Row
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _EffectToggle(
-                          icon: Icons.speaker,
-                          label: 'Bass Boost',
-                          isOn: _bassBoostOn,
-                          color: const Color(0xFF00BCD4),
-                          onToggle: _toggleBassBoost,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _EffectToggle(
-                          icon: Icons.mic,
-                          label: 'Vocal Clear',
-                          isOn: _vocalClearOn,
-                          color: const Color(0xFF9C27B0),
-                          onToggle: _toggleVocalClear,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _EffectToggle(
-                          icon: Icons.headphones,
-                          label: '8D Audio',
-                          isOn: _is8DOn,
-                          color: const Color(0xFFFF5722),
-                          onToggle: _toggle8D,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // EQ Preset chips
-                SizedBox(
-                  height: 34,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    children: _kPresets.keys.map((name) {
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: _NeonChip(
-                          label: name.toUpperCase(),
-                          active: _activePreset == name,
-                          // FIX: was activeThumbColor (invalid) → activeColor
-                          activeColor: RG.cyan,
-                          onTap: () => _applyPreset(name),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // Band sliders
-                SizedBox(
-                  height: 200,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: List.generate(10, (i) {
-                      final db = _bands[i];
-                      return Expanded(
-                        child: _BandSlider(
-                          label: _kBandLabels[i],
-                          value: db,
-                          color: _bandColor(db),
-                          onChanged: (v) => _onBandChanged(i, v),
-                        ),
-                      );
-                    }),
-                  ),
-                ),
-
-                // dB scale
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        '+10 dB',
-                        style: TextStyle(
-                          color: RG.cyan.withValues(alpha: 0.5),
-                          fontSize: 9,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      const Text(
-                        '0 dB',
-                        style: TextStyle(color: Colors.white24, fontSize: 9, letterSpacing: 0.5),
-                      ),
-                      const Text(
-                        '-10 dB',
-                        style: TextStyle(color: Colors.white24, fontSize: 9, letterSpacing: 0.5),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
-          ),
-        ),
+          SizedBox(height: MediaQuery.of(context).padding.bottom + 16),
+        ],
       ),
     );
   }
 }
 
-// ── Effect Toggle Button ───────────────────────────────────────────────────────
-class _EffectToggle extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool isOn;
-  final Color color;
-  final VoidCallback onToggle;
-
-  const _EffectToggle({
-    required this.icon,
-    required this.label,
-    required this.isOn,
-    required this.color,
-    required this.onToggle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onToggle,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: isOn ? color.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isOn ? color.withValues(alpha: 0.7) : Colors.white.withValues(alpha: 0.1),
-            width: isOn ? 1.5 : 1.0,
-          ),
-          boxShadow: isOn
-              ? [BoxShadow(color: color.withValues(alpha: 0.3), blurRadius: 12)]
-              : null,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: isOn ? color : Colors.white38, size: 22),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                color: isOn ? color : Colors.white38,
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 2),
-            Container(
-              width: 24, height: 3,
-              decoration: BoxDecoration(
-                color: isOn ? color : Colors.white12,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ── Band Slider ───────────────────────────────────────────────────────────────
-class _BandSlider extends StatelessWidget {
-  final String label;
-  final double value;
-  final Color color;
-  final ValueChanged<double> onChanged;
-
-  const _BandSlider({
-    required this.label,
-    required this.value,
-    required this.color,
-    required this.onChanged,
-  });
+// ─────────────────────────────────────────────────────────────────────────────
+class _SheetHandle extends StatelessWidget {
+  const _SheetHandle();
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(
-          value == 0 ? '0' : '${value > 0 ? '+' : ''}${value.toStringAsFixed(0)}',
-          style: TextStyle(
-            color: value.abs() > 0.5 ? color : Colors.white24,
-            fontSize: 9,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Expanded(
-          child: RotatedBox(
-            quarterTurns: 3,
-            child: SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                trackHeight: 3,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-                overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-                activeTrackColor: color,
-                inactiveTrackColor: Colors.white.withValues(alpha: 0.1),
-                thumbColor: Colors.white,
-                overlayColor: color.withValues(alpha: 0.2),
-              ),
-              child: Slider(
-                value: value,
-                min: -10.0,
-                max: 10.0,
-                onChanged: onChanged,
-              ),
+        const SizedBox(height: 12),
+        Center(
+          child: Container(
+            width: 36, height: 4,
+            decoration: BoxDecoration(
+              color: JBColors.glassBorder,
+              borderRadius: JBRadius.pill,
             ),
           ),
         ),
         const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.4),
-            fontSize: 9,
-            letterSpacing: 0.3,
-          ),
-        ),
       ],
     );
   }
 }
 
-// ── Neon Chip ─────────────────────────────────────────────────────────────────
-class _NeonChip extends StatelessWidget {
-  final String label;
-  final bool active;
-  final Color activeColor;
-  final VoidCallback? onTap;
+// ─────────────────────────────────────────────────────────────────────────────
+class _EQHeader extends StatelessWidget {
+  final VoidCallback onReset;
+  const _EQHeader({required this.onReset});
 
-  const _NeonChip({
-    required this.label,
-    required this.active,
-    required this.activeColor,
-    required this.onTap,
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+      child: Row(
+        children: [
+          Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(
+              gradient: JBGradients.nova,
+              borderRadius: BorderRadius.circular(JBRadius.sm),
+              boxShadow: JBShadow.novaSoft,
+            ),
+            child: const Icon(Icons.equalizer_rounded, color: Colors.white, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Equalizer', style: JBType.h3),
+              Text('Tune your sound', style: JBType.caption),
+            ],
+          ),
+          const Spacer(),
+          GestureDetector(
+            onTap: onReset,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: JBGlass.card(radius: JBRadius.full),
+              child: Text('Reset',
+                style: JBType.captionMedium.copyWith(color: JBColors.textSecondary)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+class _PresetRow extends StatelessWidget {
+  final EqPreset current;
+  final ValueChanged<EqPreset> onSelect;
+  const _PresetRow({required this.current, required this.onSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 36,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        children: EqPreset.values.map((p) {
+          final active = p == current;
+          return GestureDetector(
+            onTap: () => onSelect(p),
+            child: AnimatedContainer(
+              duration: 200.ms,
+              margin: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+              decoration: active
+                  ? BoxDecoration(
+                      gradient: JBGradients.nova,
+                      borderRadius: JBRadius.pill,
+                      boxShadow: JBShadow.nova,
+                    )
+                  : JBGlass.card(radius: JBRadius.full),
+              child: Text(
+                // FIXED: use the EqPresetLabel extension (.label) — covers all
+                // 9 presets including hipHop, so no exhaustiveness issues.
+                p.label,
+                style: JBType.captionMedium.copyWith(
+                  color: active ? JBColors.void0 : JBColors.textSecondary,
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  5-BAND VERTICAL SLIDERS
+// ─────────────────────────────────────────────────────────────────────────────
+class _BandSliders extends StatelessWidget {
+  final List<String> bands;
+  final List<double> gains;
+  final void Function(int, double) onChanged;
+
+  const _BandSliders({
+    required this.bands, required this.gains, required this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
-          color: active
-              ? activeColor.withValues(alpha: 0.15)
-              : Colors.white.withValues(alpha: 0.05),
-          border: Border.all(
-            color: active
-                ? activeColor.withValues(alpha: 0.6)
-                : Colors.white.withValues(alpha: 0.1),
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: bands.asMap().entries.map((e) {
+        final i     = e.key;
+        final label = e.value;
+        final gain  = i < gains.length ? gains[i] : 0.0;
+
+        return _VerticalBandSlider(
+          label: label,
+          gain: gain,
+          onChanged: (v) => onChanged(i, v),
+        );
+      }).toList(),
+    );
+  }
+}
+
+class _VerticalBandSlider extends StatelessWidget {
+  final String label;
+  final double gain;
+  final ValueChanged<double> onChanged;
+
+  const _VerticalBandSlider({
+    required this.label, required this.gain, required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dB     = gain.toStringAsFixed(1);
+    final color  = gain > 0
+        ? Color.lerp(JBColors.nova, JBColors.pulse, gain / 15)!
+        : gain < 0
+            ? Color.lerp(JBColors.textTertiary, JBColors.aurora, -gain / 15)!
+            : JBColors.nova;
+
+    return SizedBox(
+      width: 56,
+      child: Column(
+        children: [
+          // dB value
+          Text(
+            '${gain >= 0 ? '+' : ''}$dB',
+            style: JBType.micro.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+              fontSize: 10,
+            ),
           ),
-          boxShadow: active
-              ? [BoxShadow(color: activeColor.withValues(alpha: 0.25), blurRadius: 8)]
-              : null,
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: active ? activeColor : Colors.white38,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.8,
+          const SizedBox(height: 6),
+
+          // Vertical slider
+          Expanded(
+            child: RotatedBox(
+              quarterTurns: 3,
+              child: SliderTheme(
+                data: SliderThemeData(
+                  trackHeight: 4,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+                  activeTrackColor: color,
+                  inactiveTrackColor: JBColors.glass15,
+                  thumbColor: Colors.white,
+                  overlayColor: color.withValues(alpha: 0.2),
+                  trackShape: const RoundedRectSliderTrackShape(),
+                ),
+                child: Slider(
+                  // FIXED: clamp to ±15 dB to match JBDspEngine's actual range
+                  value: gain.clamp(-15.0, 15.0),
+                  min: -15,
+                  max: 15,
+                  divisions: 60,
+                  onChanged: onChanged,
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 6),
+
+          // Frequency label
+          Text(
+            label,
+            style: JBType.micro.copyWith(fontSize: 9),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  FEATURE TOGGLES ROW
+// ─────────────────────────────────────────────────────────────────────────────
+class _FeatureToggles extends StatelessWidget {
+  final bool bassBoost, vocalClear, is8D;
+  final ValueChanged<bool> onBassBoost, onVocalClear, on8D;
+
+  const _FeatureToggles({
+    required this.bassBoost, required this.vocalClear, required this.is8D,
+    required this.onBassBoost, required this.onVocalClear, required this.on8D,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Row(
+        children: [
+          _ToggleChip(
+            label: 'Bass+',
+            icon: Icons.graphic_eq_rounded,
+            active: bassBoost,
+            color: JBColors.pulse,
+            onTap: () => onBassBoost(!bassBoost),
+          ),
+          const SizedBox(width: 10),
+          _ToggleChip(
+            label: 'Vocals',
+            icon: Icons.record_voice_over_rounded,
+            active: vocalClear,
+            color: JBColors.aurora,
+            onTap: () => onVocalClear(!vocalClear),
+          ),
+          const SizedBox(width: 10),
+          _ToggleChip(
+            label: '8D',
+            icon: Icons.surround_sound_outlined,
+            active: is8D,
+            color: JBColors.nova,
+            onTap: () => on8D(!is8D),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ToggleChip extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool active;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _ToggleChip({
+    required this.label, required this.icon,
+    required this.active, required this.color, required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: 250.ms,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: active
+              ? BoxDecoration(
+                  color: color.withValues(alpha: 0.15),
+                  borderRadius: JBRadius.card,
+                  border: Border.all(color: color.withValues(alpha: 0.5), width: 0.8),
+                  boxShadow: [
+                    BoxShadow(color: color.withValues(alpha: 0.2), blurRadius: 12),
+                  ],
+                )
+              : JBGlass.card(radius: JBRadius.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: active ? color : JBColors.textSecondary, size: 20),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: JBType.micro.copyWith(
+                  color: active ? color : JBColors.textSecondary,
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+            ],
           ),
         ),
       ),

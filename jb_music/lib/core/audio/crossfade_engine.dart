@@ -91,7 +91,7 @@ class JBCrossfadeEngine {
     await inPlayer.setVolume(0.0);
     await inPlayer.play();
 
-    _fadeTimer = Timer.periodic(Duration(milliseconds: tickMs), (timer) async {
+    _fadeTimer = Timer.periodic(const Duration(milliseconds: tickMs), (timer) async {
       step++;
       final progress = step / steps; // 0.0 → 1.0
       final fadeIn   = _easeInOut(progress);
@@ -127,7 +127,7 @@ class JBCrossfadeEngine {
 
     _fadeTimer?.cancel();
 
-    _fadeTimer = Timer.periodic(Duration(milliseconds: tickMs), (timer) async {
+    _fadeTimer = Timer.periodic(const Duration(milliseconds: tickMs), (timer) async {
       step++;
       final progress = step / steps;
       try {
@@ -155,7 +155,7 @@ class JBCrossfadeEngine {
     await player.setVolume(0.0);
 
     _fadeTimer?.cancel();
-    _fadeTimer = Timer.periodic(Duration(milliseconds: tickMs), (timer) async {
+    _fadeTimer = Timer.periodic(const Duration(milliseconds: tickMs), (timer) async {
       step++;
       final progress = step / steps;
       try {

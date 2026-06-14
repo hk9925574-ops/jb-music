@@ -2,7 +2,6 @@
 // FIXED: Enhanced 8D audio with real panning, bass boost, vocal enhancer, EQ presets
 import 'dart:async';
 import 'dart:math' as math;
-import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:flutter/material.dart';
 

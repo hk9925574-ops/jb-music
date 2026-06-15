@@ -26,6 +26,13 @@ class VoskVoiceEngine {
   bool _isListening = false;
   bool _shouldListen = false;
 
+  // FIX #7: Keep listenFor / sessionTimer in sync — single source of truth.
+  static const Duration _listenFor = Duration(seconds: 8);
+  static const Duration _pauseFor = Duration(seconds: 2);
+  // Session timer fires slightly after listenFor to let the plugin fire
+  // its own done/notListening status first, avoiding a double-stop race.
+  static const Duration _sessionTimeout = Duration(milliseconds: 8500);
+
   bool get isReady => _isInitialized;
   bool get isListening => _isListening;
 
@@ -43,8 +50,7 @@ class VoskVoiceEngine {
           debugPrint('⚠️ Voice error: ${error.errorMsg}');
           _isListening = false;
           if (!error.permanent && _shouldListen) {
-            _isListening = false;
-            // error_busy = recognizer not released yet; wait longer
+            // error_busy = recognizer not released yet; wait longer.
             final delay = error.errorMsg == 'error_busy'
                 ? const Duration(milliseconds: 1200)
                 : const Duration(milliseconds: 600);
@@ -52,20 +58,29 @@ class VoskVoiceEngine {
           }
         },
         onStatus: (status) {
-          debugPrint('🎤 Status: $status');
-          if ((status == 'done' || status == 'notListening') &&
-              _shouldListen) {
+          debugPrint(
+            'STATUS => $status | listening=$_isListening | shouldListen=$_shouldListen',
+          );
+
+          if (status == 'done' || status == 'notListening') {
             _isListening = false;
-            // Give Android time to fully release the recognizer
-            _scheduleRestart(delay: const Duration(milliseconds: 800));
+            _sessionTimer?.cancel(); // FIX #2: always cancel on done
+            if (_shouldListen) {
+              _scheduleRestart(delay: const Duration(milliseconds: 800));
+            }
           }
         },
       );
 
+      debugPrint('SPEECH AVAILABLE = $available');
+
+      final locales = await _speech.locales();
+      debugPrint('AVAILABLE LOCALES = ${locales.length}');
+
       _isInitialized = available;
-      debugPrint(available
-          ? '✅ Voice engine ready'
-          : '❌ Voice engine not available');
+      debugPrint(
+        available ? '✅ Voice engine ready' : '❌ Voice engine not available',
+      );
     } catch (e) {
       debugPrint('❌ Voice init error: $e');
     }
@@ -75,6 +90,10 @@ class VoskVoiceEngine {
   // START LISTENING
   // ─────────────────────────────────────────────────────────────
   Future<void> startListening() async {
+    if (_shouldListen) return;
+
+    debugPrint('🎤 START LISTENING');
+
     if (!_isInitialized) await initializeVoicePipeline();
     if (!_isInitialized) return;
 
@@ -87,16 +106,25 @@ class VoskVoiceEngine {
 
     _restartTimer?.cancel();
 
-    // Force-stop any lingering session to avoid error_busy
-    try { await _speech.stop(); } catch (_) {}
+    // Force-stop any lingering session to avoid error_busy.
+    try {
+      await _speech.stop();
+    } catch (_) {}
     await Future.delayed(const Duration(milliseconds: 150));
 
+    // Guard again — stopListening() might have been called during the delay.
+    if (!_shouldListen) return;
+
     try {
-      _isListening = true;
+      // FIX #1: set _isListening = true ONLY after listen() succeeds, not before.
+      // We use a local flag to track the attempt.
 
       _sessionTimer?.cancel();
-      _sessionTimer = Timer(const Duration(seconds: 30), () {
-        if (_shouldListen) {
+      _sessionTimer = Timer(_sessionTimeout, () {
+        // FIX #7: fires at 8500 ms, after the plugin's own listenFor (8000 ms),
+        // so this is a safety net, not the primary stop path.
+        if (_shouldListen && _isListening) {
+          debugPrint('⏱️ Session timeout — restarting');
           _speech.stop().then((_) {
             _isListening = false;
             _scheduleRestart(delay: const Duration(milliseconds: 200));
@@ -104,42 +132,62 @@ class VoskVoiceEngine {
         }
       });
 
-      // FIX: use SpeechListenOptions instead of deprecated named params
+      debugPrint('🎤 Calling speech.listen()');
+
       await _speech.listen(
         onResult: (result) {
-          if (!result.finalResult) return;
+          debugPrint(
+            'WORDS=${result.recognizedWords} FINAL=${result.finalResult}',
+          );
+
+          if (result.recognizedWords.trim().isEmpty) return;
 
           final text = result.recognizedWords.trim().toLowerCase();
+          debugPrint('PROCESSING => $text');
 
-          if (text.isEmpty) return;
-
-          debugPrint('🎤 Heard: "$text"');
-
+          // Always emit raw text so the UI can show live feedback.
           _resultCtrl.add(text);
+
+          // FIX #4: Only parse intent on final results, not partials.
+          // Parsing mid-word causes wrong song names / false positives.
+          if (!result.finalResult) return;
 
           final intent = _parseIntent(text);
 
           if (intent.action != JbVoiceAction.unknown) {
             debugPrint(
-                '✅ Intent: ${intent.action} | payload: ${intent.payload}');
+              '✅ Intent: ${intent.action} | payload: ${intent.payload}',
+            );
             _intentCtrl.add(intent);
+
+            // Stop listening after a recognized command.
+            Future.microtask(() async {
+              await stopListening();
+            });
           } else {
             debugPrint('❓ No intent matched for: "$text"');
           }
         },
         listenOptions: stt.SpeechListenOptions(
-          listenFor: const Duration(seconds: 30),
-          pauseFor: const Duration(milliseconds: 500),
-          partialResults: false,
+          listenFor: _listenFor,
+          pauseFor: _pauseFor,
+          partialResults: true, // keep true for live UI feedback
           cancelOnError: false,
-          // FIX: use search mode — optimised for short commands, not long dictation
-          listenMode: stt.ListenMode.search,
+          listenMode: stt.ListenMode.confirmation,
         ),
       );
+
+      // FIX #1: mark listening only after listen() returns without throwing.
+      _isListening = true;
+      debugPrint('🎤 speech.listen() started');
     } catch (e) {
       debugPrint('❌ Session error: $e');
       _isListening = false;
-      _scheduleRestart();
+      _sessionTimer?.cancel();
+
+      if (_shouldListen) {
+        _scheduleRestart();
+      }
     }
   }
 
@@ -161,14 +209,15 @@ class VoskVoiceEngine {
   Future<void> stopListening() async {
     _shouldListen = false;
 
+    // FIX #3: cancel timers BEFORE the early return so they never fire late.
     _restartTimer?.cancel();
     _sessionTimer?.cancel();
 
     if (!_isListening) return;
 
     try {
-      await _speech.stop();
       _isListening = false;
+      await _speech.stop();
     } catch (e) {
       debugPrint('⚠️ Stop error: $e');
     }
@@ -178,27 +227,38 @@ class VoskVoiceEngine {
   // INTENT PARSER
   // ─────────────────────────────────────────────────────────────
   VoiceCommandIntent _parseIntent(String raw) {
-    // ── STEP 1: strip wake words + punctuation FIRST ──────────────────────
-    // Remove "hey jb", "ok jb", "hey jb," (with optional comma/punctuation)
-    // Also strips standalone "jb" prefix like "jb play something"
+    // ── STEP 1: strip wake words + punctuation ─────────────────────────────
+    // FIX #8: broader wake-word regex — handles "hey jb,", "okay jb.", "jb,"
+    // mid-sentence and at any position before the command.
     final cleaned = raw
-        .replaceAll(RegExp(r'\b(hey|ok|okay)\s+jb\b[,.]?\s*', caseSensitive: false), '')
-        .replaceAll(RegExp(r'^jb\b[,.]?\s*', caseSensitive: false), '')
-        .replaceAll(RegExp(r'[,.]'), ' ')   // remove commas/dots
-        .replaceAll(RegExp(r'\s+'), ' ')     // collapse spaces
+        .replaceAll(
+          RegExp(
+            r'\b(hey|ok|okay)\s+jb\b[,.]?\s*',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        // Handles bare "jb" prefix anywhere it appears before the command,
+        // not just at the start of the string (e.g. "play jb shuffle").
+        .replaceAll(
+          RegExp(r'\bjb\b[,.]?\s*', caseSensitive: false),
+          '',
+        )
+        .replaceAll(RegExp(r'[,.]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
 
     debugPrint('🔍 Cleaned: "$cleaned"');
 
-    // ── SLEEP TIMER ──────────────────────────────────────────────────────
+    // ── SLEEP TIMER ────────────────────────────────────────────────────────
     final timerRegex = RegExp(
-      r'(set.*(timer|sleep)|sleep.*(in|after|for)|stop.*(in|after)|timer).*?(\d+)\s*(min|minute|minutes|m\b)',
+      r'(set.*(timer|sleep)|sleep.*(in|after|for)|stop.*(in|after)|timer)'
+      r'.*?(\d+)\s*(min|minute|minutes|m\b)',
       caseSensitive: false,
     );
 
     final timerMatch = timerRegex.firstMatch(cleaned);
     if (timerMatch != null) {
-      // Extract the number from the utterance
       final numMatch = RegExp(r'(\d+)').firstMatch(cleaned);
       final finalMins = numMatch?.group(1) ?? '30';
       return VoiceCommandIntent(
@@ -210,35 +270,46 @@ class VoskVoiceEngine {
       );
     }
 
-    if (_contains(cleaned, ['cancel timer', 'stop timer', 'no timer', 'turn off timer'])) {
+    if (_containsPhrase(
+      cleaned,
+      ['cancel timer', 'stop timer', 'no timer', 'turn off timer'],
+    )) {
       return _intent(JbVoiceAction.cancelSleepTimer, cleaned, cleaned);
     }
 
-    // ── SHUFFLE ──────────────────────────────────────────────────────────
-    if (_contains(cleaned, ['shuffle'])) {
+    // ── SHUFFLE ────────────────────────────────────────────────────────────
+    if (_containsPhrase(cleaned, ['shuffle'])) {
       return _intent(JbVoiceAction.shuffle, cleaned, 'shuffle');
     }
 
-    // ── REPEAT ───────────────────────────────────────────────────────────
-    if (_contains(cleaned, ['repeat', 'loop'])) {
+    // ── REPEAT ─────────────────────────────────────────────────────────────
+    if (_containsPhrase(cleaned, ['repeat', 'loop'])) {
       return _intent(JbVoiceAction.repeat, cleaned, 'repeat');
     }
 
-    // ── VOLUME ───────────────────────────────────────────────────────────
-    if (_contains(cleaned, ['volume up', 'turn up', 'louder', 'increase volume'])) {
+    // ── VOLUME ─────────────────────────────────────────────────────────────
+    if (_containsPhrase(
+      cleaned,
+      ['volume up', 'turn up', 'louder', 'increase volume'],
+    )) {
       return _intent(JbVoiceAction.volumeUp, cleaned, 'volume up');
     }
-    if (_contains(cleaned, ['volume down', 'turn down', 'quieter', 'lower volume', 'decrease volume'])) {
+    if (_containsPhrase(
+      cleaned,
+      ['volume down', 'turn down', 'quieter', 'lower volume', 'decrease volume'],
+    )) {
       return _intent(JbVoiceAction.volumeDown, cleaned, 'volume down');
     }
 
-    // ── EAR SAFETY ───────────────────────────────────────────────────────
-    if (_contains(cleaned, ['ear safety', 'check safety', 'hearing', 'volume safe'])) {
+    // ── EAR SAFETY ─────────────────────────────────────────────────────────
+    if (_containsPhrase(
+      cleaned,
+      ['ear safety', 'check safety', 'hearing', 'volume safe'],
+    )) {
       return _intent(JbVoiceAction.checkSafety, cleaned, 'check safety');
     }
 
-    // ── PLAY SONG (must come before generic "play") ───────────────────────
-    // Matches: "play [song/track] <name>", "play me <name>", "i want to hear <name>", "put on <name>"
+    // ── PLAY SONG (must come before generic "play") ────────────────────────
     final playSongRegex = RegExp(
       r'^(?:play(?:\s+(?:the\s+)?(?:song|track|music))?\s+(.+)|'
       r'(?:play\s+me|i\s+want\s+to\s+(?:hear|listen\s+to)|put\s+on)\s+(.+))$',
@@ -260,7 +331,7 @@ class VoskVoiceEngine {
       }
     }
 
-    // ── SEARCH ───────────────────────────────────────────────────────────
+    // ── SEARCH ─────────────────────────────────────────────────────────────
     final searchRegex = RegExp(
       r'^(?:search(?:\s+for)?|find|look\s+for|show\s+me)\s+(.+)$',
       caseSensitive: false,
@@ -280,7 +351,7 @@ class VoskVoiceEngine {
       }
     }
 
-    // ── PLAYLIST ─────────────────────────────────────────────────────────
+    // ── PLAYLIST ───────────────────────────────────────────────────────────
     if (cleaned.contains('playlist')) {
       final playlistRegex = RegExp(
         r'(?:play(?:list)?|open|switch\s+to|go\s+to)\s+(?:playlist\s+)?(.+)',
@@ -288,7 +359,6 @@ class VoskVoiceEngine {
       );
       final playlistMatch = playlistRegex.firstMatch(cleaned);
       if (playlistMatch != null) {
-        // Remove trailing "playlist" word if user said "play my chill playlist"
         final name = (playlistMatch.group(1) ?? '')
             .replaceAll(RegExp(r'\bplaylist\b', caseSensitive: false), '')
             .trim();
@@ -304,20 +374,25 @@ class VoskVoiceEngine {
       }
     }
 
-    // ── BASIC CONTROLS (last resort — after all payload-bearing checks) ──
-    if (_contains(cleaned, ['pause', 'stop music', 'stop playing'])) {
+    // ── BASIC CONTROLS (last resort) ───────────────────────────────────────
+    // FIX #5: use word-boundary regex instead of plain substring contains
+    // to prevent "next" matching "connect", "repeat" matching "repeated", etc.
+    if (_containsWord(cleaned, ['pause', 'stop music', 'stop playing'])) {
       return _intent(JbVoiceAction.pause, cleaned, 'pause');
     }
 
-    if (_contains(cleaned, ['next', 'skip', 'next song', 'next track'])) {
+    if (_containsWord(cleaned, ['next', 'skip', 'next song', 'next track'])) {
       return _intent(JbVoiceAction.next, cleaned, 'next');
     }
 
-    if (_contains(cleaned, ['previous', 'back', 'last song', 'go back'])) {
+    if (_containsWord(
+      cleaned,
+      ['previous', 'back', 'last song', 'go back'],
+    )) {
       return _intent(JbVoiceAction.previous, cleaned, 'previous');
     }
 
-    if (_contains(cleaned, ['play', 'start', 'resume', 'continue'])) {
+    if (_containsWord(cleaned, ['play', 'start', 'resume', 'continue'])) {
       return _intent(JbVoiceAction.play, cleaned, 'play');
     }
 
@@ -329,13 +404,37 @@ class VoskVoiceEngine {
   }
 
   // ─────────────────────────────────────────────────────────────
-  bool _contains(String text, List<String> phrases) =>
+  // HELPERS
+  // ─────────────────────────────────────────────────────────────
+
+  /// Substring match — fine for multi-word phrases like "volume up"
+  /// where the phrase itself is specific enough to avoid false positives.
+  bool _containsPhrase(String text, List<String> phrases) =>
       phrases.any((p) => text.contains(p));
+
+  /// FIX #5: Word-boundary match for single words that could appear inside
+  /// longer words (e.g. "next" inside "connect", "play" inside "replay").
+  bool _containsWord(String text, List<String> phrases) {
+    return phrases.any((p) {
+      // Multi-word phrases: plain contains is safe enough.
+      if (p.contains(' ')) return text.contains(p);
+      // Single words: require word boundaries.
+      return RegExp(r'\b' + RegExp.escape(p) + r'\b').hasMatch(text);
+    });
+  }
 
   bool _isStopword(String q) {
     const stopwords = {
-      'music', 'something', 'a song', 'anything', 'song', 'track',
-      'me', 'it', 'this', 'that',
+      'music',
+      'something',
+      'a song',
+      'anything',
+      'song',
+      'track',
+      'me',
+      'it',
+      'this',
+      'that',
     };
     return stopwords.contains(q.trim().toLowerCase());
   }
@@ -359,9 +458,9 @@ class VoskVoiceEngine {
   // DISPOSE
   // ─────────────────────────────────────────────────────────────
   Future<void> dispose() async {
+    // FIX #6: stopListening already cancels both timers; no need to
+    // re-cancel them here. Reset _isInitialized after stop completes.
     await stopListening();
-    _restartTimer?.cancel();
-    _sessionTimer?.cancel();
     await _intentCtrl.close();
     await _resultCtrl.close();
     _isInitialized = false;

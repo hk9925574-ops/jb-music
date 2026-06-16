@@ -197,6 +197,7 @@ class JBDspEngine {
 
   // ── 8D Audio ───────────────────────────────────────────────────────────────
   Future<void> set8DMode(bool enabled) async {
+    debugPrint("DSP PLAYER PLAYING = ${_audioPlayer.playing}");
     _is8DEnabled = enabled;
     if (enabled) {
       _start8DLoop();

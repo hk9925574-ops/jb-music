@@ -10,10 +10,10 @@ dependencies:
     sdk: flutter
 
   # ── Audio ──────────────────────────────────────────────────────────────────
-  just_audio: ^0.9.46
+  just_audio: ^0.10.4
   on_audio_query: ^2.9.0
-  audio_service: ^0.18.0
-
+  audio_service: ^0.18.13
+  audio_session: ^0.2.1
   # ── UI & Animations ────────────────────────────────────────────────────────
   cupertino_icons: ^1.0.8
   flutter_animate: ^4.5.2

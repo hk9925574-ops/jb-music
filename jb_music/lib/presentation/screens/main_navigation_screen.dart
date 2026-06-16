@@ -120,7 +120,7 @@ class _NovaNavBar extends StatelessWidget {
           child: SafeArea(
             top: false,
             child: SizedBox(
-              height: 58,
+              height: 68,
               child: Row(
                 children: items.asMap().entries.map((e) {
                   final i = e.key;

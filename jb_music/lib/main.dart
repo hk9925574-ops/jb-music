@@ -26,7 +26,7 @@ import 'package:jb_music/core/ai/feature_registry.dart';
 
 const bool isTestMode = bool.fromEnvironment('TEST_MODE', defaultValue: false);
 
-final audioHandler        = MyAudioHandler();
+late final AudioHandler audioHandler;
 final _dspEngine          = JBDspEngine();
 final _safetyMonitor      = EarSafetyMonitor();
 final _voiceEngine        = VoskVoiceEngine();
@@ -37,7 +37,16 @@ final _getTracksUseCase   = GetTracks(repository: _trackSource);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
+  
+  audioHandler = await AudioService.init(
+  builder: () => MyAudioHandler(),
+  config: const AudioServiceConfig(
+    androidNotificationChannelId: 'com.jbmusic.audio',
+    androidNotificationChannelName: 'JB Music Playback',
+    androidNotificationOngoing: true,
+    androidStopForegroundOnPause: false,
+  ),
+);
   if (!isTestMode) {
     await JBFeatureRegistry.instance.init();
   }

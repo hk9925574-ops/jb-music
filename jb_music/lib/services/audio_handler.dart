@@ -1,7 +1,8 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 
-class MyAudioHandler {
+class MyAudioHandler extends BaseAudioHandler
+    with QueueHandler, SeekHandler {
   final AudioPlayer _player = AudioPlayer();
 
   Stream<Duration>    get positionStream    => _player.positionStream;

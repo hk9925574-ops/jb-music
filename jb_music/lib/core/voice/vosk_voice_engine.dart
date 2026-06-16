@@ -25,6 +25,7 @@ class VoskVoiceEngine {
   bool _isInitialized = false;
   bool _isListening = false;
   bool _shouldListen = false;
+  bool _commandProcessed = false;
 
   // FIX #7: Keep listenFor / sessionTimer in sync — single source of truth.
   static const Duration _listenFor = Duration(seconds: 8);
@@ -91,6 +92,7 @@ class VoskVoiceEngine {
   // ─────────────────────────────────────────────────────────────
   Future<void> startListening() async {
     if (_shouldListen) return;
+     _commandProcessed = false;
 
     debugPrint('🎤 START LISTENING');
 
@@ -103,6 +105,8 @@ class VoskVoiceEngine {
 
   Future<void> _startSession() async {
     if (_isListening || !_shouldListen) return;
+
+    
 
     _restartTimer?.cancel();
 
@@ -143,22 +147,31 @@ class VoskVoiceEngine {
           if (result.recognizedWords.trim().isEmpty) return;
 
           final text = result.recognizedWords.trim().toLowerCase();
+          if (_commandProcessed) return;
           debugPrint('PROCESSING => $text');
 
           // Always emit raw text so the UI can show live feedback.
           _resultCtrl.add(text);
 
-          // FIX #4: Only parse intent on final results, not partials.
-          // Parsing mid-word causes wrong song names / false positives.
-          if (!result.finalResult) return;
+// Process long enough partial results too
+          if (!result.finalResult &&
+              text.trim().split(' ').length < 2) {
+           return;
+          }
 
           final intent = _parseIntent(text);
 
           if (intent.action != JbVoiceAction.unknown) {
+
+            _commandProcessed = true;
+            _shouldListen = false;
+
             debugPrint(
               '✅ Intent: ${intent.action} | payload: ${intent.payload}',
             );
             _intentCtrl.add(intent);
+
+           
 
             // Stop listening after a recognized command.
             Future.microtask(() async {
@@ -173,7 +186,7 @@ class VoskVoiceEngine {
           pauseFor: _pauseFor,
           partialResults: true, // keep true for live UI feedback
           cancelOnError: false,
-          listenMode: stt.ListenMode.confirmation,
+          listenMode: stt.ListenMode.dictation,
         ),
       );
 

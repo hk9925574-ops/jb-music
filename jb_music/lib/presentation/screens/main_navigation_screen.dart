@@ -152,7 +152,10 @@ class _NovaNavBar extends StatelessWidget {
                                           : JBColors.glassBorder,
                                       width: 0.8,
                                     ),
-                                    boxShadow: active ? JBShadow.nova : null,
+                                    boxShadow: active ? JBShadow.nova : [
+                                      const BoxShadow(color: Colors.transparent, blurRadius: 24),
+                                      const BoxShadow(color: Colors.transparent, blurRadius: 48),
+                                    ],
                                   )
                                 : BoxDecoration(
                                     borderRadius: BorderRadius.circular(10),

@@ -3,13 +3,13 @@
 // JB MUSIC — NOVA — Entry Point
 // ─────────────────────────────────────────────────────────────────────────────
 
+import 'package:audio_service/audio_service.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:device_info_plus/device_info_plus.dart';
-// ADD THIS IMPORT AT THE TOP OF lib\main.dart
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:jb_music/presentation/screens/main_navigation_screen.dart';
 import 'package:jb_music/core/theme/jb_design_system.dart';
@@ -26,7 +26,7 @@ import 'package:jb_music/core/ai/feature_registry.dart';
 
 const bool isTestMode = bool.fromEnvironment('TEST_MODE', defaultValue: false);
 
-late final AudioHandler audioHandler;
+late final MyAudioHandler audioHandler;
 final _dspEngine          = JBDspEngine();
 final _safetyMonitor      = EarSafetyMonitor();
 final _voiceEngine        = VoskVoiceEngine();
@@ -37,16 +37,18 @@ final _getTracksUseCase   = GetTracks(repository: _trackSource);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
+  // ✅ Fixed: removed stray comma before 'as'
   audioHandler = await AudioService.init(
-  builder: () => MyAudioHandler(),
-  config: const AudioServiceConfig(
-    androidNotificationChannelId: 'com.jbmusic.audio',
-    androidNotificationChannelName: 'JB Music Playback',
-    androidNotificationOngoing: true,
-    androidStopForegroundOnPause: false,
-  ),
-);
+    builder: () => MyAudioHandler(),
+    config: const AudioServiceConfig(
+      androidNotificationChannelId: 'com.jbmusic.audio',
+      androidNotificationChannelName: 'JB Music Playback',
+      androidNotificationOngoing: true,
+      androidStopForegroundOnPause: true,
+    ),
+  ) as MyAudioHandler;
+
   if (!isTestMode) {
     await JBFeatureRegistry.instance.init();
   }
@@ -86,18 +88,18 @@ class JBMusicApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (_) => MusicBloc(
-        audioHandler:      audioHandler,
-        dspEngine:         _dspEngine,
-        safetyMonitor:     _safetyMonitor,
-        voiceEngine:       _voiceEngine,
-        vaultRepository:   _vaultRepository,
+        audioHandler:       audioHandler,
+        dspEngine:          _dspEngine,
+        safetyMonitor:      _safetyMonitor,
+        voiceEngine:        _voiceEngine,
+        vaultRepository:    _vaultRepository,
         playlistRepository: _playlistRepository,
-        getTracksUseCase:  _getTracksUseCase,
+        getTracksUseCase:   _getTracksUseCase,
       )..add(LoadAudioTracksEvent()),
       child: MaterialApp(
         title: 'JB Music',
         debugShowCheckedModeBanner: false,
-        theme: JBTheme.dark,          // ← NOVA theme
+        theme: JBTheme.dark,
         darkTheme: JBTheme.dark,
         themeMode: ThemeMode.dark,
         home: const _SplashGate(),
@@ -123,8 +125,10 @@ class _SplashGateState extends State<_SplashGate>
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))
-        ..forward();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..forward();
     _init();
   }
 
@@ -187,13 +191,15 @@ class _SplashScreen extends StatelessWidget {
             AnimatedBuilder(
               animation: ctrl,
               builder: (_, __) {
-                final scale = Curves.elasticOut.transform(ctrl.value.clamp(0.0, 1.0));
+                final scale = Curves.elasticOut
+                    .transform(ctrl.value.clamp(0.0, 1.0));
                 return Transform.scale(
                   scale: 0.5 + scale * 0.5,
                   child: Opacity(
                     opacity: ctrl.value.clamp(0.0, 1.0),
                     child: Container(
-                      width: 96, height: 96,
+                      width: 96,
+                      height: 96,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         gradient: JBGradients.nova,
@@ -214,21 +220,32 @@ class _SplashScreen extends StatelessWidget {
 
             // App name
             ShaderMask(
-              shaderCallback: (r) => JBGradients.sectionTitle.createShader(r),
+              shaderCallback: (r) =>
+                  JBGradients.sectionTitle.createShader(r),
               child: Text(
                 'JB Music',
-                style: JBType.h1.copyWith(color: Colors.white, fontSize: 36),
+                style: JBType.h1.copyWith(
+                  color: Colors.white,
+                  fontSize: 36,
+                ),
               ),
             )
                 .animate(delay: 400.ms)
                 .fadeIn(duration: 600.ms)
-                .slideY(begin: 0.2, end: 0, curve: JBAnim.easeOut),
+                .slideY(
+                  begin: 0.2,
+                  end: 0,
+                  curve: JBAnim.easeOut,
+                ),
 
             const SizedBox(height: 8),
 
             Text(
               'Nova Edition',
-              style: JBType.caption.copyWith(color: JBColors.nova, letterSpacing: 2),
+              style: JBType.caption.copyWith(
+                color: JBColors.nova,
+                letterSpacing: 2,
+              ),
             )
                 .animate(delay: 600.ms)
                 .fadeIn(duration: 500.ms),
@@ -240,7 +257,9 @@ class _SplashScreen extends StatelessWidget {
               width: 120,
               child: LinearProgressIndicator(
                 backgroundColor: JBColors.glass10,
-                valueColor: const AlwaysStoppedAnimation<Color>(JBColors.nova),
+                valueColor: const AlwaysStoppedAnimation<Color>(
+                  JBColors.nova,
+                ),
                 borderRadius: JBRadius.pill,
                 minHeight: 2,
               ),

@@ -209,7 +209,9 @@ class _SearchBar extends StatelessWidget {
           color: focused ? JBColors.nova.withValues(alpha: 0.5) : JBColors.glassBorder,
           width: focused ? 1.0 : 0.5,
         ),
-        boxShadow: focused ? JBShadow.novaSoft : null,
+        boxShadow: focused ? JBShadow.novaSoft : [
+          const BoxShadow(color: Colors.transparent, blurRadius: 16),
+        ],
       ),
       child: Row(
         children: [

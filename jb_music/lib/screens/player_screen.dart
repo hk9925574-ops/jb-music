@@ -892,7 +892,10 @@ class _LikeButton extends StatelessWidget {
             color: isLiked ? JBColors.pulse.withValues(alpha: 0.5) : JBColors.glassBorder,
             width: 0.8,
           ),
-          boxShadow: isLiked ? JBShadow.pulse : null,
+          boxShadow: isLiked ? JBShadow.pulse : [
+            const BoxShadow(color: Colors.transparent, blurRadius: 20),
+            const BoxShadow(color: Colors.transparent, blurRadius: 40),
+          ],
         ),
         child: Icon(
           isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,

@@ -317,8 +317,12 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
       PlayTrackEvent event, Emitter<MusicState> emit) async {
     final uris = event.tracks.map((t) => 'file://${t.path}').toList();
     await audioHandler.updatePlaylist(uris);
-    await audioHandler.skipToQueueItem(event.index);
-
+     await audioHandler.skipToQueueItem(event.index);
+    await audioHandler.updateNowPlaying(
+      songId: event.tracks[event.index].id,
+      title: event.tracks[event.index].title,
+      artist: event.tracks[event.index].artist,
+    );
     final song = event.tracks[event.index];
     _recentTracks
       ..removeWhere((s) => s.path == song.path)

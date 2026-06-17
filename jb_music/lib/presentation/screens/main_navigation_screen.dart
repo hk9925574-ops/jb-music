@@ -46,12 +46,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     super.initState();
     _navCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 400));
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && !_voiceStarted) {
-        _voiceStarted = true;
-        context.read<MusicBloc>().add(StartVoiceListeningEvent());
-      }
-    });
+    
   }
 
   @override

@@ -235,7 +235,11 @@ class _PlayerScreenState extends State<PlayerScreen>
             sleepEnd: _sleepEnd,
             fmt: _fmt,
             onSleepTap: _showSleepTimer,
-            on8DTap: () => setState(() => _is8D = !_is8D),
+            on8DTap: () {
+              final newVal = !_is8D;
+              setState(() => _is8D = newVal);
+              context.read<MusicBloc>().dspEngine.set8DMode(newVal);
+            },
             onRepeatTap: () => setState(() => _repeatMode = (_repeatMode + 1) % 3),
             onShuffleTap: () => setState(() => _shuffle = !_shuffle),
           ),

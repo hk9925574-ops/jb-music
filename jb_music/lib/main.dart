@@ -49,6 +49,9 @@ void main() async {
     ),
   ) as MyAudioHandler;
 
+  _dspEngine.attachPlayer(audioHandler.player);
+
+
   if (!isTestMode) {
     await JBFeatureRegistry.instance.init();
   }
@@ -95,6 +98,9 @@ class JBMusicApp extends StatelessWidget {
         vaultRepository:    _vaultRepository,
         playlistRepository: _playlistRepository,
         getTracksUseCase:   _getTracksUseCase,
+        moodEngine:         JBFeatureRegistry.instance.moodEngine,   // NEW
+        djEngine:           JBFeatureRegistry.instance.djEngine,     // NEW
+        smartQueue:         JBFeatureRegistry.instance.smartQueue, 
       )..add(LoadAudioTracksEvent()),
       child: MaterialApp(
         title: 'JB Music',

@@ -14,6 +14,9 @@ import 'package:jb_music/domain/entities/voice_intent.dart';
 import 'package:jb_music/domain/repositories/vault_repository.dart';
 import 'package:jb_music/domain/repositories/playlist_repository.dart';
 import 'package:jb_music/domain/usecases/get_tracks.dart';
+import 'package:jb_music/core/ai/mood_engine.dart';
+import 'package:jb_music/core/ai/jb_dj.dart';
+import 'package:jb_music/core/ai/smart_queue.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PLAYLIST MODEL
@@ -49,6 +52,9 @@ class MusicTracksLoadedState extends MusicState {
   final int sleepTimerMinutes;
   final Duration todayListened;
   final Map<String, int> playCount;
+  final JBMood currentMood;
+  final List<QueueItem> queueItems;
+  final bool djModeEnabled;
 
   const MusicTracksLoadedState({
     required this.visibleTracks,
@@ -61,6 +67,9 @@ class MusicTracksLoadedState extends MusicState {
     this.sleepTimerMinutes = 0,
     this.todayListened = Duration.zero,
     this.playCount = const {},
+    this.currentMood = JBMood.unknown,
+    this.queueItems = const [],
+    this.djModeEnabled = false,
   });
 
   MusicTracksLoadedState copyWith({
@@ -74,6 +83,9 @@ class MusicTracksLoadedState extends MusicState {
     int? sleepTimerMinutes,
     Duration? todayListened,
     Map<String, int>? playCount,
+    JBMood? currentMood,
+    List<QueueItem>? queueItems,
+    bool? djModeEnabled,
   }) =>
       MusicTracksLoadedState(
         visibleTracks: visibleTracks ?? this.visibleTracks,
@@ -86,9 +98,11 @@ class MusicTracksLoadedState extends MusicState {
         sleepTimerMinutes: sleepTimerMinutes ?? this.sleepTimerMinutes,
         todayListened: todayListened ?? this.todayListened,
         playCount: playCount ?? this.playCount,
+        currentMood: currentMood ?? this.currentMood,
+        queueItems: queueItems ?? this.queueItems,
+        djModeEnabled: djModeEnabled ?? this.djModeEnabled,
       );
 
-  // Fix: return List<Object> (non-nullable) — use empty string/0 instead of nullables
   @override
   List<Object> get props => [
         visibleTracks,
@@ -101,6 +115,9 @@ class MusicTracksLoadedState extends MusicState {
         sleepTimerMinutes,
         todayListened,
         playCount,
+        currentMood,
+        queueItems,
+        djModeEnabled,
       ];
 }
 
@@ -181,6 +198,41 @@ class VoiceCommandEvent extends MusicEvent {
   VoiceCommandEvent({required this.intent});
 }
 
+// ── Mood / DJ / Queue events ──────────────────────────────────────────────────
+class MoodChangedEvent extends MusicEvent {
+  final JBMood mood;
+  MoodChangedEvent(this.mood);
+}
+
+class QueueUpdatedEvent extends MusicEvent {}
+
+class ToggleDjModeEvent extends MusicEvent {}
+
+class AddToQueueEvent extends MusicEvent {
+  final JBSong song;
+  AddToQueueEvent(this.song);
+}
+
+class PlayNextEvent extends MusicEvent {
+  final JBSong song;
+  PlayNextEvent(this.song);
+}
+
+class RemoveFromQueueEvent extends MusicEvent {
+  final String songId;
+  RemoveFromQueueEvent(this.songId);
+}
+
+class ReorderQueueEvent extends MusicEvent {
+  final int oldIndex;
+  final int newIndex;
+  ReorderQueueEvent(this.oldIndex, this.newIndex);
+}
+
+class ClearQueueEvent extends MusicEvent {}
+
+class ShuffleQueueEvent extends MusicEvent {}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // BLOC
 // ─────────────────────────────────────────────────────────────────────────────
@@ -192,6 +244,9 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
   final VoskVoiceEngine _voiceEngine;
   final VaultRepository vaultRepository;
   final PlaylistRepository playlistRepository;
+  final JBMoodEngine moodEngine;
+  final JBDjEngine djEngine;
+  final JBSmartQueue smartQueue;
 
   late final StreamSubscription<PlayerState> _playbackSub;
   late final StreamSubscription<VoiceCommandIntent> _voiceIntentSub;
@@ -206,6 +261,9 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
   int _sleepTimerMinutes = 0;
   DateTime? _listenStartTime;
   Map<String, int> _playCount = {};
+  bool _djModeEnabled = false;
+  JBSong? _nowPlayingSong;
+  DateTime? _nowPlayingStartTime;
 
   Timer? _sleepTimer;
 
@@ -219,6 +277,9 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     required VoskVoiceEngine voiceEngine,
     required this.vaultRepository,
     required this.playlistRepository,
+    required this.moodEngine,
+    required this.djEngine,
+    required this.smartQueue,
   })  : _voiceEngine = voiceEngine,
         super(MusicTracksLoadingState()) {
     _playbackSub = audioHandler.playerStateStream.listen(
@@ -231,6 +292,9 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
         add(VoiceCommandEvent(intent: intent));
       },
     );
+
+    moodEngine.onMoodChanged = (mood) => add(MoodChangedEvent(mood));
+    smartQueue.onQueueChanged = () => add(QueueUpdatedEvent());
 
     on<LoadAudioTracksEvent>(_onLoadTracks);
     on<TogglePlaybackEvent>(_onTogglePlayback);
@@ -246,6 +310,15 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     on<StopVoiceListeningEvent>(_onStopVoice);
     on<VoiceCommandEvent>(_onVoiceCommand);
     on<PlaySmartPlaylistEvent>(_onPlaySmartPlaylist);
+    on<MoodChangedEvent>(_onMoodChanged);
+    on<QueueUpdatedEvent>(_onQueueUpdated);
+    on<ToggleDjModeEvent>(_onToggleDjMode);
+    on<AddToQueueEvent>(_onAddToQueue);
+    on<PlayNextEvent>(_onPlayNext);
+    on<RemoveFromQueueEvent>(_onRemoveFromQueue);
+    on<ReorderQueueEvent>(_onReorderQueue);
+    on<ClearQueueEvent>(_onClearQueue);
+    on<ShuffleQueueEvent>(_onShuffleQueue);
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -274,8 +347,7 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
         : null;
     return MusicTracksLoadedState(
       visibleTracks: visibleTracks ?? cur?.visibleTracks ?? _allTracks,
-      currentTrackIndex:
-          currentTrackIndex ?? cur?.currentTrackIndex ?? 0,
+      currentTrackIndex: currentTrackIndex ?? cur?.currentTrackIndex ?? 0,
       isPlaying: isPlaying ?? cur?.isPlaying ?? false,
       likedTracks: _likedTracks,
       recentTracks: _recentTracks,
@@ -284,6 +356,9 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
       sleepTimerMinutes: sleepTimerMinutes ?? _sleepTimerMinutes,
       todayListened: cur?.todayListened ?? Duration.zero,
       playCount: _playCount,
+      currentMood: moodEngine.currentMood,
+      queueItems: smartQueue.items,
+      djModeEnabled: _djModeEnabled,
     );
   }
 
@@ -295,6 +370,7 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     try {
       final tracks = await getTracksUseCase.call();
       _allTracks = tracks.cast<JBSong>();
+      djEngine.buildQueue(_allTracks, _playCount, _likedTracks, null);
       emit(MusicTracksLoadedState(
         visibleTracks: _allTracks,
         currentTrackIndex: 0,
@@ -317,13 +393,37 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
       PlayTrackEvent event, Emitter<MusicState> emit) async {
     final uris = event.tracks.map((t) => 'file://${t.path}').toList();
     await audioHandler.updatePlaylist(uris);
-     await audioHandler.skipToQueueItem(event.index);
+    await audioHandler.skipToQueueItem(event.index);
     await audioHandler.updateNowPlaying(
       songId: event.tracks[event.index].id,
       title: event.tracks[event.index].title,
       artist: event.tracks[event.index].artist,
     );
+
     final song = event.tracks[event.index];
+
+    // Record mood signal for previous song before switching
+    if (_nowPlayingSong != null && _nowPlayingStartTime != null) {
+      final listened = DateTime.now().difference(_nowPlayingStartTime!);
+      final completed = _nowPlayingSong!.durationMs == 0
+          ? false
+          : (listened.inMilliseconds / _nowPlayingSong!.durationMs) >= 0.8;
+      moodEngine.recordSignal(SessionSignal(
+        song: _nowPlayingSong!,
+        listenedDuration: listened,
+        skipped: !completed,
+        replayed: _nowPlayingSong!.path == song.path,
+        timestamp: DateTime.now(),
+      ));
+    }
+
+    _nowPlayingSong = song;
+    _nowPlayingStartTime = DateTime.now();
+
+    if (_djModeEnabled) {
+      djEngine.announceTrack(song);
+    }
+
     _recentTracks
       ..removeWhere((s) => s.path == song.path)
       ..insert(0, song);
@@ -345,7 +445,6 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     ));
   }
 
-  // Fix: this was registered but missing — now properly defined
   void _onPlaybackStateChanged(
       PlaybackStateChangedEvent event, Emitter<MusicState> emit) {
     if (state is! MusicTracksLoadedState) return;
@@ -418,42 +517,31 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     emit(_buildState());
   }
 
-  // Fix: removed duplicate — single definition only
   void _onPlaySmartPlaylist(
       PlaySmartPlaylistEvent event, Emitter<MusicState> emit) {
     if (state is! MusicTracksLoadedState) return;
 
     List<JBSong> selection;
 
-    // Fix: JBSong.duration is a Duration — compare with Duration constants,
-    // not raw int milliseconds.
     switch (event.type) {
       case SmartPlaylistType.shuffle:
         selection = List.of(_allTracks)..shuffle();
         break;
-
       case SmartPlaylistType.workout:
-        // Short tracks < 4 minutes
         selection = _allTracks
-            .where((s) =>
-                s.duration < const Duration(minutes: 4))
+            .where((s) => s.duration < const Duration(minutes: 4))
             .toList();
         if (selection.isEmpty) selection = _allTracks;
         break;
-
       case SmartPlaylistType.study:
-        // Longer tracks >= 4 minutes
         selection = _allTracks
-            .where((s) =>
-                s.duration >= const Duration(minutes: 4))
+            .where((s) => s.duration >= const Duration(minutes: 4))
             .toList();
         if (selection.isEmpty) selection = _allTracks;
         break;
-
       case SmartPlaylistType.sleep:
         selection = List.of(_allTracks)..shuffle();
         break;
-
       case SmartPlaylistType.travel:
         selection = List.of(_allTracks)..shuffle();
         break;
@@ -486,7 +574,6 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     debugPrint('🎤 ACTION: ${intent.action}, PAYLOAD: ${intent.payload}');
 
     switch (intent.action) {
-      // ── Playback ──────────────────────────────────────────────────────────
       case JbVoiceAction.play:
         await audioHandler.play();
         break;
@@ -510,16 +597,12 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
       case JbVoiceAction.repeat:
         await audioHandler.setRepeatMode(AudioServiceRepeatMode.all);
         break;
-
-      // ── Volume ────────────────────────────────────────────────────────────
       case JbVoiceAction.volumeUp:
         debugPrint('🔊 Volume up (implement with audioHandler volume API)');
         break;
       case JbVoiceAction.volumeDown:
         debugPrint('🔉 Volume down');
         break;
-
-      // ── Search song ───────────────────────────────────────────────────────
       case JbVoiceAction.searchSong:
         final query = intent.payload ?? '';
         if (query.isNotEmpty) {
@@ -528,8 +611,6 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
           emit(_buildState(voiceSearchQuery: query));
         }
         break;
-
-      // ── Play song by name ─────────────────────────────────────────────────
       case JbVoiceAction.playSong:
         final query = (intent.payload ?? '').toLowerCase();
         if (query.isNotEmpty) {
@@ -543,18 +624,15 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
           } else {
             _voiceSearchQuery = query;
             emit(_buildState(voiceSearchQuery: query));
-            debugPrint(
-                '⚠️ No exact match — showing search results for "$query"');
+            debugPrint('⚠️ No exact match — showing search results for "$query"');
           }
         }
         break;
-
-      // ── Play playlist ─────────────────────────────────────────────────────
       case JbVoiceAction.playPlaylist:
         final name = (intent.payload ?? '').toLowerCase();
         if (name.isNotEmpty) {
-          final matches = _playlists
-              .where((p) => p.name.toLowerCase().contains(name));
+          final matches =
+              _playlists.where((p) => p.name.toLowerCase().contains(name));
           if (matches.isEmpty) {
             debugPrint('⚠️ No matching playlist found for "$name"');
             return;
@@ -566,8 +644,6 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
           }
         }
         break;
-
-      // ── Sleep timer ───────────────────────────────────────────────────────
       case JbVoiceAction.setSleepTimer:
         {
           final int mins = int.tryParse(intent.payload ?? '30') ?? 30;
@@ -581,7 +657,6 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
           debugPrint('⏰ Sleep timer set for $mins minutes');
           break;
         }
-
       case JbVoiceAction.cancelSleepTimer:
         {
           _sleepTimer?.cancel();
@@ -591,16 +666,61 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
           debugPrint('⏰ Sleep timer cancelled');
           break;
         }
-
-      // ── Safety ────────────────────────────────────────────────────────────
       case JbVoiceAction.checkSafety:
         debugPrint('🛡️ Safety check requested');
         break;
-
       case JbVoiceAction.unknown:
         debugPrint('❓ Unknown voice command: ${intent.action}');
         break;
     }
+  }
+
+  // ── Mood / DJ / Smart Queue handlers ──────────────────────────────────────
+
+  void _onMoodChanged(MoodChangedEvent event, Emitter<MusicState> emit) {
+    if (state is! MusicTracksLoadedState) return;
+    debugPrint('🎭 BLoC: mood → ${event.mood.label}');
+    djEngine.buildQueue(_allTracks, _playCount, _likedTracks, _nowPlayingSong);
+    emit(_buildState());
+  }
+
+  void _onQueueUpdated(QueueUpdatedEvent event, Emitter<MusicState> emit) {
+    if (state is! MusicTracksLoadedState) return;
+    emit(_buildState());
+  }
+
+  void _onToggleDjMode(ToggleDjModeEvent event, Emitter<MusicState> emit) {
+    _djModeEnabled = !_djModeEnabled;
+    if (_djModeEnabled) {
+      djEngine.buildQueue(_allTracks, _playCount, _likedTracks, _nowPlayingSong);
+    }
+    debugPrint(_djModeEnabled ? '🎧 DJ mode ON' : '🎧 DJ mode OFF');
+    emit(_buildState());
+  }
+
+  void _onAddToQueue(AddToQueueEvent event, Emitter<MusicState> emit) {
+    smartQueue.addToQueue(event.song);
+  }
+
+  void _onPlayNext(PlayNextEvent event, Emitter<MusicState> emit) {
+    smartQueue.playNext(event.song);
+  }
+
+  void _onRemoveFromQueue(
+      RemoveFromQueueEvent event, Emitter<MusicState> emit) {
+    smartQueue.remove(event.songId);
+  }
+
+  void _onReorderQueue(ReorderQueueEvent event, Emitter<MusicState> emit) {
+    smartQueue.reorder(event.oldIndex, event.newIndex);
+  }
+
+  void _onClearQueue(ClearQueueEvent event, Emitter<MusicState> emit) {
+    smartQueue.clear();
+  }
+
+  void _onShuffleQueue(ShuffleQueueEvent event, Emitter<MusicState> emit) {
+    smartQueue.shuffleRemaining();
   }
 
   @override

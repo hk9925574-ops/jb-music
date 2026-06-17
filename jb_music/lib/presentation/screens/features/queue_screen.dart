@@ -56,10 +56,13 @@ class _QueueScreenState extends State<QueueScreen> {
           : ReorderableListView.builder(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               itemCount: items.length,
-              onReorderItem: (oldIndex, newIndex) {
+              
+                // CORRECT — named parameter with typed arguments
+              onReorder: (int oldIndex, int newIndex) {
                 widget.queue.reorder(oldIndex, newIndex);
                 setState(() {});
               },
+              
               itemBuilder: (context, index) {
                 final item = items[index];
                 return Dismissible(

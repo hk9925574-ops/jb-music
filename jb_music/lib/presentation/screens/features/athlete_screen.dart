@@ -4,7 +4,9 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
-
+import 'package:jb_music/core/athlete/athlete_engine.dart';
+import 'package:jb_music/core/ai/feature_registry.dart';
+import 'package:jb_music/core/theme/rg_tokens.dart';
 // FIX: removed unused flutter_bloc and music_bloc imports
 import 'package:jb_music/core/athlete/athlete_engine.dart';
 import 'package:jb_music/core/theme/rg_tokens.dart';
@@ -17,7 +19,7 @@ class AthleteScreen extends StatefulWidget {
 }
 
 class _AthleteScreenState extends State<AthleteScreen> {
-  final JBAthleteEngine _engine = JBAthleteEngine();
+  final JBAthleteEngine _engine = JBFeatureRegistry.instance.athleteEngine;
   JBSport _selectedSport = JBSport.running;
   int _manualHR = 0;
   Timer? _sessionTimer;

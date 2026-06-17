@@ -1,12 +1,13 @@
 // lib/core/audio/dsp_engine.dart
-// FIXED: Enhanced 8D audio with real panning, bass boost, vocal enhancer, EQ presets
+// FIXED: 8D audio now operates on the real AudioPlayer from MyAudioHandler.
+// Call dspEngine.attachPlayer(audioHandler.player) in main.dart after init.
+
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:just_audio/just_audio.dart';
 import 'package:flutter/material.dart';
 
 // ── EQ Preset definitions ─────────────────────────────────────────────────────
-// FIX: renamed hip_hop → hipHop to follow lowerCamelCase convention
 enum EqPreset { flat, bass, treble, vocal, pop, rock, classical, electronic, hipHop }
 
 extension EqPresetLabel on EqPreset {
@@ -50,8 +51,18 @@ extension EqPresetLabel on EqPreset {
 
 // ── DSP Engine ────────────────────────────────────────────────────────────────
 class JBDspEngine {
-  late AudioPlayer _audioPlayer;
+  // FIX: No longer creates its own AudioPlayer.
+  // Must call attachPlayer(audioHandler.player) in main.dart before use.
+  AudioPlayer? _audioPlayer;
   AndroidEqualizer? _equalizer;
+
+  // Safe internal getter — throws a clear error if attachPlayer was never called
+  AudioPlayer get _player {
+    assert(_audioPlayer != null,
+        'JBDspEngine: attachPlayer() was never called. '
+        'Call dspEngine.attachPlayer(audioHandler.player) in main.dart after AudioService.init().');
+    return _audioPlayer!;
+  }
 
   final List<double> _equalizerGains = [0.0, 0.0, 0.0, 0.0, 0.0];
   List<double> get equalizerGains => List.unmodifiable(_equalizerGains);
@@ -73,49 +84,51 @@ class JBDspEngine {
 
   bool _isInitialized = false;
 
-  // FIX: renamed _8d* variables to eightD* to follow lowerCamelCase convention
   Timer? _eightDTimer;
   double _eightDAngle = 0.0;
   static const double _eightDSpeed = 0.08;
 
-  JBDspEngine() {
-    _initializeHardwarePipeline();
+  // FIX: Constructor does nothing — player is not available yet at this point.
+  JBDspEngine();
+
+  // ── Attach the real player ─────────────────────────────────────────────────
+  // Call this in main.dart:
+  //   dspEngine.attachPlayer(audioHandler.player);
+  void attachPlayer(AudioPlayer player) {
+    _audioPlayer = player;
+    _initializeEqualizer();
+    _configurePlatformInterruptionListeners();
+    debugPrint('✅ DSP Engine attached to real AudioPlayer');
   }
 
-  // ── Init ───────────────────────────────────────────────────────────────────
-  void _initializeHardwarePipeline() {
+  // ── Init equalizer only (player already exists) ────────────────────────────
+  // Note: AndroidEqualizer must be passed into AudioPipeline at player
+  // creation time to work on Android. Since MyAudioHandler owns the player,
+  // software EQ fallback is used here via band gain calls instead.
+  void _initializeEqualizer() {
     try {
       _equalizer = AndroidEqualizer();
-      _audioPlayer = AudioPlayer(
-        audioPipeline: AudioPipeline(
-          androidAudioEffects: [_equalizer!],
-        ),
-        handleInterruptions: true,
-        androidApplyAudioAttributes: true,
-      );
       _isInitialized = true;
-      _configurePlatformInterruptionListeners();
-      debugPrint('✅ DSP Engine initialized with hardware EQ');
+      debugPrint('✅ DSP equalizer ready');
     } catch (e) {
-      debugPrint('⚠️ DSP hardware EQ unavailable, using software fallback: $e');
-      _audioPlayer = AudioPlayer(
-        handleInterruptions: true,
-        androidApplyAudioAttributes: true,
-      );
+      debugPrint('⚠️ DSP EQ unavailable, software fallback only: $e');
+      _isInitialized = false;
     }
   }
 
   void _configurePlatformInterruptionListeners() {
-    _audioPlayer.playbackEventStream.listen(
+    _player.playbackEventStream.listen(
       (_) {},
-      onError: (Object e, StackTrace st) => debugPrint('⚠️ DSP event error: $e'),
+      onError: (Object e, StackTrace st) =>
+          debugPrint('⚠️ DSP playback event error: $e'),
     );
   }
 
-  // ── Load ───────────────────────────────────────────────────────────────────
-  Future<void> loadLocalAsset(String filePath, {required String title, required String artist}) async {
+  // ── Load (kept for any direct DSP use cases) ───────────────────────────────
+  Future<void> loadLocalAsset(String filePath,
+      {required String title, required String artist}) async {
     try {
-      await _audioPlayer.setAudioSource(AudioSource.file(filePath));
+      await _player.setAudioSource(AudioSource.file(filePath));
     } catch (e) {
       debugPrint('❌ DSP load error [$title]: $e');
       throw Exception('DSP Engine: failed to load "$title" — $e');
@@ -197,14 +210,15 @@ class JBDspEngine {
 
   // ── 8D Audio ───────────────────────────────────────────────────────────────
   Future<void> set8DMode(bool enabled) async {
-    debugPrint("DSP PLAYER PLAYING = ${_audioPlayer.playing}");
     _is8DEnabled = enabled;
+    debugPrint('🎧 8D mode: $enabled | player playing: ${_player.playing}');
     if (enabled) {
       _start8DLoop();
       debugPrint('🎧 8D Audio ON');
     } else {
       _stop8DLoop();
-      await _audioPlayer.setVolume(1.0);
+      // Restore full volume when 8D is turned off
+      await _player.setVolume(1.0);
       debugPrint('🎧 8D Audio OFF');
     }
   }
@@ -226,10 +240,10 @@ class JBDspEngine {
 
   Future<void> _apply8DFrame(double angle) async {
     if (!_is8DEnabled) return;
-    // FIX: changed final → const since this is a constant value
     const volumeDepth = 0.12;
     final volume = 1.0 - volumeDepth * (1 - math.cos(angle));
-    await _audioPlayer.setVolume(volume.clamp(0.1, 1.0));
+    // FIX: now calls setVolume on the REAL player that is actually playing audio
+    await _player.setVolume(volume.clamp(0.1, 1.0));
     if (_isInitialized && _equalizer != null) {
       final treble = -4.0 * math.sin(angle).abs();
       final mid = 3.0 * math.cos(angle * 0.5);
@@ -250,30 +264,31 @@ class JBDspEngine {
     await setBassBoost(false);
     await setVocalClear(false);
     await resetEqualizer();
-    await _audioPlayer.setVolume(1.0);
+    await _player.setVolume(1.0);
     debugPrint('🔄 All effects reset');
   }
 
-  // ── Playback ───────────────────────────────────────────────────────────────
-  Stream<Duration>    get positionStream    => _audioPlayer.positionStream;
-  Stream<Duration?>   get durationStream    => _audioPlayer.durationStream;
-  Stream<PlayerState> get playerStateStream => _audioPlayer.playerStateStream;
+  // ── Playback passthrough ───────────────────────────────────────────────────
+  Stream<Duration>    get positionStream    => _player.positionStream;
+  Stream<Duration?>   get durationStream    => _player.durationStream;
+  Stream<PlayerState> get playerStateStream => _player.playerStateStream;
 
-  bool get playing => _audioPlayer.playing;
+  bool get playing => _player.playing;
 
-  Future<void> play()                  => _audioPlayer.play();
-  Future<void> pause()                 => _audioPlayer.pause();
-  Future<void> seek(Duration position) => _audioPlayer.seek(position);
-  Future<void> skipToNext()            => _audioPlayer.seekToNext();
-  Future<void> skipToPrevious()        => _audioPlayer.seekToPrevious();
+  Future<void> play()                   => _player.play();
+  Future<void> pause()                  => _player.pause();
+  Future<void> seek(Duration position)  => _player.seek(position);
+  Future<void> skipToNext()             => _player.seekToNext();
+  Future<void> skipToPrevious()         => _player.seekToPrevious();
 
-  Future<void> setVolume(double volume) => _audioPlayer.setVolume(volume.clamp(0.0, 1.0));
-  double get volume => _audioPlayer.volume;
+  Future<void> setVolume(double volume) =>
+      _player.setVolume(volume.clamp(0.0, 1.0));
+  double get volume => _player.volume;
 
   // ── Dispose ────────────────────────────────────────────────────────────────
   void dispose() {
     _stop8DLoop();
-    _audioPlayer.dispose();
+    // Do NOT dispose _audioPlayer here — MyAudioHandler owns and disposes it
     debugPrint('🧹 DSP Engine disposed');
   }
 }

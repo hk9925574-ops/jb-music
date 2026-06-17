@@ -103,7 +103,8 @@ class MyAudioHandler extends BaseAudioHandler
     await _player.stop();
     await super.stop();
   }
-
+// ADD this one line anywhere after the _player declaration
+AudioPlayer get player => _player;
   // ── Playlist ──────────────────────────────────────────────────────────────
   Future<void> updatePlaylist(List<String> uris) async {
     final playlist = ConcatenatingAudioSource(

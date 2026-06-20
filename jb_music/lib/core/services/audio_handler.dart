@@ -105,6 +105,10 @@ class MyAudioHandler extends BaseAudioHandler
   }
 // ADD this one line anywhere after the _player declaration
 AudioPlayer get player => _player;
+
+Future<int?> getAudioSessionId() async {
+  return player.androidAudioSessionId;
+}
   // ── Playlist ──────────────────────────────────────────────────────────────
   Future<void> updatePlaylist(List<String> uris) async {
     final playlist = ConcatenatingAudioSource(

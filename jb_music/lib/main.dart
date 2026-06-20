@@ -14,6 +14,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:jb_music/presentation/screens/main_navigation_screen.dart';
 import 'package:jb_music/core/theme/jb_design_system.dart';
 import 'package:jb_music/core/audio/dsp_engine.dart';
+import 'package:jb_music/core/audio/dsp_storage.dart'; // ADDED
 import 'package:jb_music/core/safety/ear_safety_monitor.dart';
 import 'package:jb_music/core/voice/vosk_voice_engine.dart';
 import 'package:jb_music/core/services/audio_handler.dart';
@@ -35,10 +36,43 @@ final _playlistRepository = LocalPlaylistRepository();
 final _trackSource        = LocalTrackQuerySource();
 final _getTracksUseCase   = GetTracks(repository: _trackSource);
 
+Future<void> restoreDSPSettings() async {
+  try {
+    final bassEnabled =
+        await DspStorage.getBassEnabled();
+
+    final bassStrength =
+        await DspStorage.getBassStrength();
+
+    final spatialEnabled =
+        await DspStorage.getSpatialEnabled();
+
+    if (bassEnabled) {
+      await _dspEngine.setBassBoost(
+        true,
+        strength: bassStrength / 1000,
+      );
+    }
+
+    if (spatialEnabled) {
+      await _dspEngine.set8DMode(
+        true,
+      );
+    }
+
+    debugPrint(
+      '✅ DSP settings restored',
+    );
+  } catch (e) {
+    debugPrint(
+      '❌ DSP restore failed: $e',
+    );
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ✅ Fixed: removed stray comma before 'as'
   audioHandler = await AudioService.init(
     builder: () => MyAudioHandler(),
     config: const AudioServiceConfig(
@@ -50,7 +84,7 @@ void main() async {
   ) as MyAudioHandler;
 
   _dspEngine.attachPlayer(audioHandler.player);
-
+  await restoreDSPSettings();
 
   if (!isTestMode) {
     await JBFeatureRegistry.instance.init();

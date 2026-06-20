@@ -1,7 +1,7 @@
 // lib/core/audio/dsp_engine.dart
 // FIXED: 8D audio now operates on the real AudioPlayer from MyAudioHandler.
 // Call dspEngine.attachPlayer(audioHandler.player) in main.dart after init.
-
+import 'package:jb_music/core/audio/native_dsp.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:just_audio/just_audio.dart';
@@ -170,22 +170,36 @@ class JBDspEngine {
   Future<void> resetEqualizer() async => applyPreset(EqPreset.flat);
 
   // ── Bass Boost ─────────────────────────────────────────────────────────────
-  Future<void> setBassBoost(bool enabled, {double strength = 0.7}) async {
-    _isBassBoostEnabled = enabled;
-    _bassBoostStrength = strength.clamp(0.0, 1.0);
-    if (enabled) {
-      final boost = 10.0 * _bassBoostStrength;
-      await _applyBandGain(0, (_equalizerGains[0] + boost).clamp(-15.0, 15.0));
-      await _applyBandGain(1, (_equalizerGains[1] + boost * 0.7).clamp(-15.0, 15.0));
-      await _applyBandGain(2, (_equalizerGains[2] + boost * 0.2).clamp(-15.0, 15.0));
-      debugPrint('🔊 Bass Boost ON (${(strength * 100).toInt()}%)');
-    } else {
-      for (int i = 0; i < _equalizerGains.length; i++) {
-        await _applyBandGain(i, _equalizerGains[i]);
-      }
-      debugPrint('🔊 Bass Boost OFF');
-    }
+ Future<void> setBassBoost(
+  bool enabled, {
+  double strength = 0.7,
+}) async {
+
+  _isBassBoostEnabled = enabled;
+  _bassBoostStrength = strength.clamp(0.0, 1.0);
+
+  final sessionId = _player.androidAudioSessionId;
+
+  debugPrint(
+    '🔊 BASS BOOST: enabled=$enabled sessionId=$sessionId'
+  );
+
+  await NativeDSP.enableBassBoost(
+    enabled,
+    sessionId ?? 0,
+    strength: (_bassBoostStrength * 1000).toInt(),
+  );
+
+  if (enabled) {
+    debugPrint(
+      '🔊 Bass Boost ON ${(strength * 100).toInt()}%'
+    );
+  } else {
+    debugPrint(
+      '🔊 Bass Boost OFF'
+    );
   }
+}
 
   // ── Vocal Enhancer ─────────────────────────────────────────────────────────
   Future<void> setVocalClear(bool enabled, {double strength = 0.7}) async {
@@ -210,19 +224,35 @@ class JBDspEngine {
 
   // ── 8D Audio ───────────────────────────────────────────────────────────────
   Future<void> set8DMode(bool enabled) async {
-    _is8DEnabled = enabled;
-    debugPrint('🎧 8D mode: $enabled | player playing: ${_player.playing}');
-    if (enabled) {
-      _start8DLoop();
-      debugPrint('🎧 8D Audio ON');
-    } else {
-      _stop8DLoop();
-      // Restore full volume when 8D is turned off
-      await _player.setVolume(1.0);
-      debugPrint('🎧 8D Audio OFF');
-    }
-  }
+  debugPrint('🔥 SET8DMODE CALLED: $enabled');
 
+  _is8DEnabled = enabled;
+
+  debugPrint(
+    '🎧 8D mode: $enabled | player playing: ${_player.playing}',
+  );
+
+  final sessionId = _player.androidAudioSessionId;
+
+  debugPrint(
+    '🎧 AUDIO SESSION ID = $sessionId',
+  );
+
+  if (enabled) {
+    await NativeDSP.enableSpatialAudio(
+      true,
+      sessionId ?? 0,
+    );
+    debugPrint('🎧 Spatial Audio ON');
+  } else {
+    await NativeDSP.enableSpatialAudio(
+      false,
+      sessionId ?? 0,
+    );    
+
+    debugPrint('🎧 Spatial Audio OFF');
+  }
+}
   void _start8DLoop() {
     _eightDTimer?.cancel();
     _eightDAngle = 0.0;
@@ -239,25 +269,36 @@ class JBDspEngine {
   }
 
   Future<void> _apply8DFrame(double angle) async {
-    if (!_is8DEnabled) return;
-    const volumeDepth = 0.12;
-    final volume = 1.0 - volumeDepth * (1 - math.cos(angle));
-    // FIX: now calls setVolume on the REAL player that is actually playing audio
-    await _player.setVolume(volume.clamp(0.1, 1.0));
-    if (_isInitialized && _equalizer != null) {
-      final treble = -4.0 * math.sin(angle).abs();
-      final mid = 3.0 * math.cos(angle * 0.5);
-      try {
-        final params = await _equalizer!.parameters;
-        final bands = params.bands;
-        if (bands.length >= 5) {
-          await bands[3].setGain((_equalizerGains[3] + mid).clamp(-15.0, 15.0));
-          await bands[4].setGain((_equalizerGains[4] + treble).clamp(-15.0, 15.0));
-        }
-      } catch (_) {}
-    }
-  }
+  if (!_is8DEnabled) return;
 
+  debugPrint('🎧 8D FRAME: $angle');
+
+  const volumeDepth = 0.5;
+
+  final volume = 1.0 - volumeDepth * (1 - math.cos(angle));
+
+  await _player.setVolume(volume.clamp(0.1, 1.0));
+
+  if (_isInitialized && _equalizer != null) {
+    final treble = -4.0 * math.sin(angle).abs();
+    final mid = 3.0 * math.cos(angle * 0.5);
+
+    try {
+      final params = await _equalizer!.parameters;
+      final bands = params.bands;
+
+      if (bands.length >= 5) {
+        await bands[3].setGain(
+          (_equalizerGains[3] + mid).clamp(-15.0, 15.0),
+        );
+
+        await bands[4].setGain(
+          (_equalizerGains[4] + treble).clamp(-15.0, 15.0),
+        );
+      }
+    } catch (_) {}
+  }
+}
   // ── Reset all effects ──────────────────────────────────────────────────────
   Future<void> resetAllEffects() async {
     await set8DMode(false);
@@ -266,6 +307,26 @@ class JBDspEngine {
     await resetEqualizer();
     await _player.setVolume(1.0);
     debugPrint('🔄 All effects reset');
+  }
+
+  // ── Restore effects for current session ────────────────────────────────────
+  // Android can rotate the native audio session id (e.g. on track change),
+  // which silently detaches native effects (bass boost, spatial audio) bound
+  // to the old session id. Call this whenever the player emits a
+  // PlaybackEvent to rebind whichever effects are currently enabled to
+  // whatever the session id now is. setBassBoost/set8DMode already read
+  // _player.androidAudioSessionId internally, so simply re-invoking them
+  // with the currently-enabled state is enough to rebind.
+  Future<void> restoreForSession(int sessionId) async {
+    debugPrint('🔁 Restoring DSP for session $sessionId');
+
+    if (_isBassBoostEnabled) {
+      await setBassBoost(true, strength: _bassBoostStrength);
+    }
+
+    if (_is8DEnabled) {
+      await set8DMode(true);
+    }
   }
 
   // ── Playback passthrough ───────────────────────────────────────────────────

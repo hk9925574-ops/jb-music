@@ -250,6 +250,9 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
 
   late final StreamSubscription<PlayerState> _playbackSub;
   late final StreamSubscription<VoiceCommandIntent> _voiceIntentSub;
+  // NEW — re-applies the DSP/EQ chain whenever the underlying audio session
+  // changes (e.g. on every track change, since Android can rotate session IDs).
+  late final StreamSubscription<PlaybackEvent> _dspSessionSub;
 
   List<JBSong> _allTracks = [];
   // ignore: prefer_final_fields — these lists are mutated in place
@@ -285,6 +288,27 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     _playbackSub = audioHandler.playerStateStream.listen(
       (state) => add(PlaybackStateChangedEvent(state.playing)),
     );
+
+    // NEW — Auto-apply DSP to every song. Fires on each playback event
+    // (track change, seek, buffering, etc.) and restores the DSP chain
+    // for whatever the *current* native audio session id is.
+    //
+    // NOTE: this assumes `audioHandler` exposes a `playbackEventStream`
+    // (a passthrough of the underlying just_audio AudioPlayer's
+    // `playbackEventStream`) and that `dspEngine` exposes a
+    // `restoreForSession(int sessionId)` method. Adjust the names below
+    // to match your actual `audio_handler.dart` / `dsp_engine.dart` APIs.
+    _dspSessionSub = audioHandler.player.playbackEventStream.listen((_) async {
+      try {
+        final sessionId = await audioHandler.getAudioSessionId();
+        if (sessionId != null) {
+          await dspEngine.restoreForSession(sessionId);
+          debugPrint('🎚️ DSP restored for session $sessionId');
+        }
+      } catch (e) {
+        debugPrint('❌ DSP restore failed: $e');
+      }
+    });
 
     _voiceIntentSub = _voiceEngine.commandIntentStream.listen(
       (intent) {
@@ -576,6 +600,12 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
     switch (intent.action) {
       case JbVoiceAction.play:
         await audioHandler.play();
+        final sessionId =
+            await audioHandler.getAudioSessionId();
+
+        debugPrint(
+          '🎧 AUDIO SESSION ID = $sessionId',
+        );
         break;
       case JbVoiceAction.pause:
         await audioHandler.pause();
@@ -727,6 +757,7 @@ class MusicBloc extends Bloc<MusicEvent, MusicState> {
   Future<void> close() {
     _playbackSub.cancel();
     _voiceIntentSub.cancel();
+    _dspSessionSub.cancel(); // NEW
     _sleepTimer?.cancel();
     return super.close();
   }

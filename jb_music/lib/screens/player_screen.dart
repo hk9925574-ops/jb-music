@@ -92,7 +92,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         ..forward();
     _tabCtrl = TabController(length: 3, vsync: this);
 
-    _extractPalette();
+    
     _startWaveSimulation();
   }
 
@@ -732,17 +732,12 @@ class _FloatingAlbumArt extends StatelessWidget {
                   child: ClipRRect(
                     borderRadius: JBRadius.hero,
                     child: RotationTransition(
-                      turns: vinylCtrl,
-                      child: QueryArtworkWidget(
-                        id: int.tryParse(track.id) ?? 0,
-                        type: ArtworkType.AUDIO,
-                        format: ArtworkFormat.JPEG,
-                        artworkQuality: FilterQuality.high,
-                        artworkBorder: BorderRadius.zero,
-                        artworkFit: BoxFit.cover,
-                        nullArtworkWidget: _FallbackArt(track: track, size: size),
-                      ),
-                    ),
+                             turns: vinylCtrl,
+                             child: _FallbackArt(
+                               track: track,
+                               size: size,
+                              ),
+                            ),
                   ),
                 ),
               ),
